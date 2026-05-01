@@ -1,0 +1,6 @@
+.env
+data/raw_logs/
+output/alerts.json
+__pycache__/
+*.pyc
+.streamlit/

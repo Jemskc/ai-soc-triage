@@ -1,0 +1,11 @@
+timestamp,severity,sourceIP,destIP,user,host,rule,message,source
+2026-04-25T08:12:04Z,CRITICAL,185.220.101.45,10.0.1.20,admin,DC-PROD-01,Brute Force Login Detected,"27 failed login attempts to admin account",Windows Security
+2026-04-25T08:13:15Z,HIGH,185.220.101.45,10.0.1.20,admin,DC-PROD-01,Account Lockout,"Admin account locked after repeated failures",Windows Security
+2026-04-25T08:15:22Z,CRITICAL,10.0.5.88,10.0.1.15,jsmith,WORKSTATION-07,PowerShell Encoded Command,"Encoded PowerShell execution detected",Sysmon
+2026-04-25T08:17:01Z,HIGH,10.0.5.88,8.8.8.8,SYSTEM,WORKSTATION-07,DNS Tunneling Detected,"412 DNS queries per minute to external resolver",DNS Logs
+2026-04-25T08:18:45Z,MEDIUM,192.168.1.101,10.0.2.50,mjones,LAPTOP-MJ,RDP Lateral Movement,"RDP initiated from non-admin workstation",Windows Security
+2026-04-25T08:20:00Z,CRITICAL,10.0.5.88,10.0.0.0,SYSTEM,WORKSTATION-07,Port Scan Detected,"1240 ports scanned in 30 seconds",Firewall
+2026-04-25T08:22:33Z,HIGH,10.0.5.88,10.0.1.1,jsmith,WORKSTATION-07,Privilege Escalation Attempt,"Token impersonation via JuicyPotato",Sysmon
+2026-04-25T08:23:11Z,MEDIUM,203.0.113.22,10.0.8.5,Unknown,WEBSERVER-01,SQL Injection Attempt,"SQL injection attempt in GET parameter",WAF
+2026-04-25T08:24:55Z,HIGH,10.0.1.20,198.51.100.0,svc-backup,DC-PROD-01,Large Data Exfiltration,"4.2 GB sent to external IP over 8 minutes",DLP
+2026-04-25T08:26:00Z,MEDIUM,10.0.3.55,10.0.1.20,bwilliams,LAPTOP-BW,Scheduled Task Created,"Suspicious startup task created by non-admin",Windows Security

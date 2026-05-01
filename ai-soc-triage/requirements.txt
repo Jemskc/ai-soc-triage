@@ -1,0 +1,14 @@
+python-evtx>=0.7.4
+lxml>=4.9.0
+pandas>=2.0.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+streamlit>=1.35.0
+plotly>=5.18.0
+watchdog>=3.0.0
+
+# Local model inference
+# torch and transformers are typically pre-installed in GPU environments.
+# If not already present, install separately to match your CUDA version:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#   pip install transformers>=4.40.0 accelerate>=0.27.0

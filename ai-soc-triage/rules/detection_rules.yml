@@ -1,0 +1,137 @@
+- id: RULE-001
+  name: Brute Force Login Attempts
+  description: More than 5 failed logins from the same IP within 60 seconds
+  mitre_id: T1110
+  mitre_name: Brute Force
+  mitre_technique: T1110 - Brute Force
+  severity: critical
+  type: threshold
+  threshold: 5
+  window_seconds: 60
+  conditions:
+    - field: event_id
+      operator: equals
+      value: "4625"
+    - field: source_ip
+      operator: exists
+      value: true
+
+- id: RULE-002
+  name: Mimikatz Credential Dumping Behavior
+  description: Flags suspicious LSASS access patterns associated with credential dumping
+  mitre_id: T1003
+  mitre_name: OS Credential Dumping
+  mitre_technique: T1003.001 - OS Credential Dumping LSASS Memory
+  severity: critical
+  type: pattern
+  conditions:
+    - field: raw_message
+      operator: regex
+      value: "(?i)(lsass\\.exe|lsass\\.dmp|mimikatz)"
+
+- id: RULE-003
+  name: Suspicious PowerShell Encoded Command
+  description: Detects encoded or obfuscated PowerShell commands used for defense evasion
+  mitre_id: T1059.001
+  mitre_name: Command and Scripting Interpreter PowerShell
+  mitre_technique: T1059.001 - Command and Scripting Interpreter PowerShell
+  severity: high
+  type: pattern
+  conditions:
+    - field: command_line
+      operator: regex
+      value: "(?i)(-enc\\b|-encodedcommand\\b|iex\\b|invoke-expression|downloadstring|frombase64string)"
+
+- id: RULE-004
+  name: New Local Admin Account Created
+  description: Detects local user account creation followed by admin group membership
+  mitre_id: T1136
+  mitre_name: Create Account
+  mitre_technique: T1136.001 - Create Account Local Account
+  severity: high
+  type: pattern
+  conditions:
+    - field: event_id
+      operator: equals
+      value: "4720"
+
+- id: RULE-005
+  name: Scheduled Task Created Outside Business Hours
+  description: Detects task scheduler persistence created outside 8am-6pm business hours
+  mitre_id: T1053
+  mitre_name: Scheduled Task Job
+  mitre_technique: T1053.005 - Scheduled Task Job Scheduled Task
+  severity: medium
+  type: pattern
+  conditions:
+    - field: event_id
+      operator: equals
+      value: "4698"
+    - field: timestamp
+      operator: outside_business_hours
+      value: "08:00-18:00"
+
+- id: RULE-006
+  name: Lateral Movement via PsExec
+  description: Detects PsExec service installation indicating remote execution
+  mitre_id: T1021
+  mitre_name: Remote Services
+  mitre_technique: T1021.002 - Remote Services SMB Windows Admin Shares
+  severity: high
+  type: pattern
+  conditions:
+    - field: raw_message
+      operator: regex
+      value: "(?i)(psexesvc|psexec\\.exe)"
+
+- id: RULE-007
+  name: Known Malware Process Name
+  description: Detects process names commonly used by offensive tools and malware families
+  mitre_id: T1059
+  mitre_name: Command and Scripting Interpreter
+  mitre_technique: T1059 - Command and Scripting Interpreter
+  severity: critical
+  type: pattern
+  conditions:
+    - field: process_name
+      operator: regex
+      value: "(?i)(mimikatz|meterpreter|cobalt|beacon|empire|powersploit|bloodhound|sharphound)"
+
+- id: RULE-008
+  name: Outbound High-Risk Port Connection
+  description: Detects outbound activity to ports commonly associated with C2 frameworks
+  mitre_id: T1071
+  mitre_name: Application Layer Protocol
+  mitre_technique: T1071 - Application Layer Protocol
+  severity: high
+  type: pattern
+  conditions:
+    - field: destination_port
+      operator: in
+      value: ["4444", "1337", "31337", "9001", "6666"]
+
+- id: RULE-009
+  name: Registry Run Key Modification
+  description: Detects persistence via Run/RunOnce registry key modification
+  mitre_id: T1547
+  mitre_name: Boot or Logon Autostart Execution
+  mitre_technique: T1547.001 - Boot or Logon Autostart Execution Registry Run Keys
+  severity: medium
+  type: pattern
+  conditions:
+    - field: raw_message
+      operator: regex
+      value: "(?i)(\\\\run\\\\|\\\\runonce\\\\|currentversion\\\\run)"
+
+- id: RULE-010
+  name: Shadow Copy Deletion Indicator
+  description: Detects vssadmin/wmic commands used by ransomware to remove volume shadow copies
+  mitre_id: T1490
+  mitre_name: Inhibit System Recovery
+  mitre_technique: T1490 - Inhibit System Recovery
+  severity: critical
+  type: pattern
+  conditions:
+    - field: command_line
+      operator: regex
+      value: "(?i)(vssadmin\\s+delete\\s+shadows|wmic\\s+shadowcopy\\s+delete)"

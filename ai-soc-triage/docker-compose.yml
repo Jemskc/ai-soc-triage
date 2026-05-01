@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  soc-dashboard:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./rules:/app/rules
+    env_file:
+      - .env
+    restart: unless-stopped
