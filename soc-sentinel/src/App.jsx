@@ -263,9 +263,8 @@ export default function App() {
 
         <AIPanel
           logs={logs}
+          activeNav={activeNav}
           selectedAlert={selectedAlert}
-          selectedLog={selectedLog}
-          selectedEmail={selectedEmail}
         />
       </div>
 

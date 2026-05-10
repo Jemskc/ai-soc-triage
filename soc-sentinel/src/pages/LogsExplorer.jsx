@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
 import { Search, Play, Bookmark, X, ChevronLeft, ChevronRight, Clock, ChevronDown,
-         Copy, Download, Send, Sparkles, ArrowUpDown } from 'lucide-react';
+         Copy, Download, Send, Sparkles } from 'lucide-react';
 import { severityBg, severityOrder } from '../utils/severityUtils';
 import { parseQuery } from '../utils/queryParser';
 import { aiLogSearch } from '../utils/aiLogSearch';
@@ -146,13 +146,8 @@ export default function LogsExplorer({ logs, onSelectLog, onInvestigate }) {
   const [aiQuery,      setAiQuery]      = useState('');
   const [queryInput,   setQueryInput]   = useState('');
 
-  // ai result metadata (for banner display only — filtering uses activeFilters)
-  const [aiResult,      setAiResult]      = useState(null);
-  const [aiDismissed,   setAiDismissed]   = useState(false);
-  const [aiExplanation, setAiExplanation] = useState(null);
-  const [aiExplLoading, setAiExplLoading] = useState(false);
-
-  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const [aiResult,    setAiResult]    = useState(null);
+  const [aiDismissed, setAiDismissed] = useState(false);
 
   // unified filter list — set by both AI and query mode
   const [activeFilters, setActiveFilters] = useState([]);
@@ -225,7 +220,6 @@ export default function LogsExplorer({ logs, onSelectLog, onInvestigate }) {
     const result = aiLogSearch(q, logs);
     setAiResult(result);
     setAiDismissed(false);
-    setAiExplanation(null);
     setActiveFilters(result.filters);
     if (result.suggestedTimeRange) {
       const tr = TIME_RANGES.find(t => t.label === result.suggestedTimeRange.label);
@@ -234,38 +228,6 @@ export default function LogsExplorer({ logs, onSelectLog, onInvestigate }) {
     saveHistory(q);
     setPage(1);
     setShowHistory(false);
-
-    // Apply filters inline to get a representative sample for real AI analysis
-    let sampleRows = filterByTime(logs, result.suggestedTimeRange
-      ? (TIME_RANGES.find(t => t.label === result.suggestedTimeRange.label)?.ms ?? 0)
-      : timeRange.ms);
-    for (const f of result.filters) {
-      if (f.operator === 'in') {
-        const vals = f.value.split('|').map(v => v.toUpperCase());
-        sampleRows = sampleRows.filter(l => vals.includes(String(l[f.field] ?? '').toUpperCase()));
-      } else if (f.operator === 'contains') {
-        sampleRows = sampleRows.filter(l => String(l[f.field] ?? '').toLowerCase().includes(f.value.toLowerCase()));
-      } else {
-        sampleRows = sampleRows.filter(l => String(l[f.field] ?? '').toLowerCase() === f.value.toLowerCase());
-      }
-    }
-    const matchCount = sampleRows.length;
-    const sample = sampleRows.slice(0, 10).map(l => ({
-      rule: l.rule, severity: l.severity, sourceIP: l.sourceIP,
-      user: l.user, host: l.host, source: l.source,
-      message: (l.message || '').substring(0, 100), timestamp: l.timestamp,
-    }));
-
-    setAiExplLoading(true);
-    fetch(`${API_BASE}/log-search`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: q, logs_sample: sample, match_count: matchCount }),
-    })
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(data => setAiExplanation(data.explanation || null))
-      .catch(() => setAiExplanation(null))
-      .finally(() => setAiExplLoading(false));
   }
 
   function runQuery() {
@@ -504,41 +466,22 @@ export default function LogsExplorer({ logs, onSelectLog, onInvestigate }) {
           )}
         </div>
 
-        {/* ── AI EXPLANATION BANNER ─────────────────────────────────────── */}
+        {/* ── AI SEARCH RESULT BADGE ────────────────────────────────────── */}
         {aiResult && !aiDismissed && (
-          <div className="mx-3 mt-2 shrink-0 rounded-lg border border-blue-500/40 bg-blue-950/30 p-3 space-y-1.5">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Sparkles size={12} className="text-blue-400 shrink-0 mt-0.5" />
-                <span className="text-blue-300 text-xs font-medium">
-                  Qwen3 found {filtered.length.toLocaleString()} logs matching your request
-                </span>
-              </div>
-              <button onClick={() => setAiDismissed(true)} className="text-muted hover:text-primary transition-colors shrink-0">
-                <X size={12} />
-              </button>
-            </div>
-            <div className="pl-5">
-              {aiExplLoading ? (
-                <div className="flex items-center gap-2 text-xs text-blue-200/50">
-                  <Loader size={10} className="animate-spin text-blue-400" />
-                  <span>Qwen3 is analyzing the results…</span>
-                </div>
-              ) : (
-                <p className="text-xs text-blue-200/80 leading-relaxed">
-                  {aiExplanation || aiResult.explanation}
-                </p>
-              )}
-            </div>
+          <div className="mx-3 mt-2 shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-500/30 bg-blue-500/5">
+            <Sparkles size={11} className="text-blue-400 shrink-0" />
+            <span className="text-blue-300 text-xs flex-1">
+              Found <span className="font-semibold">{filtered.length.toLocaleString()}</span> logs matching <span className="italic">"{aiQuery}"</span>
+            </span>
             {aiResult.translatedQuery && (
-              <div className="pl-5 flex items-center gap-2">
-                <span className="text-[10px] text-muted">Equivalent query:</span>
-                <button onClick={switchToQuery}
-                  className="font-mono text-[10px] bg-hover border border-border rounded px-2 py-0.5 text-blue-400 hover:border-blue-500 transition-colors">
-                  {aiResult.translatedQuery}
-                </button>
-              </div>
+              <button onClick={switchToQuery}
+                className="font-mono text-[10px] bg-hover border border-border rounded px-2 py-0.5 text-blue-400 hover:border-blue-500 transition-colors shrink-0">
+                {aiResult.translatedQuery}
+              </button>
             )}
+            <button onClick={() => setAiDismissed(true)} className="text-muted hover:text-primary transition-colors shrink-0">
+              <X size={11} />
+            </button>
           </div>
         )}
 

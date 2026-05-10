@@ -1,17 +1,5 @@
-import { LayoutDashboard, AlertTriangle, Search, Crosshair, Monitor, FileText, BookOpen, Settings, Database, Terminal, Mail } from 'lucide-react';
-
-const NAV_ITEMS = [
-  { id: 'overview',       icon: LayoutDashboard, label: 'Overview' },
-  { id: 'alerts',         icon: AlertTriangle,   label: 'Alerts',          badge: true },
-  { id: 'logs',           icon: Terminal,         label: 'Logs' },
-  { id: 'investigations', icon: Search,           label: 'Investigations' },
-  { id: 'hunting',        icon: Crosshair,        label: 'Threat Hunting' },
-  { id: 'email',          icon: Mail,             label: 'Email Analysis' },
-  { id: 'assets',         icon: Monitor,          label: 'Assets' },
-  { id: 'reports',        icon: FileText,         label: 'Reports' },
-  { id: 'playbooks',      icon: BookOpen,         label: 'Playbooks' },
-  { id: 'settings',       icon: Settings,         label: 'Settings' },
-];
+import { Database } from 'lucide-react';
+import { NAV_ITEMS } from '../data/navConfig';
 
 export default function Sidebar({ active, onNav, collapsed, logs, fileInfo }) {
   const criticalCount = logs ? logs.filter(l => l.severity === 'CRITICAL').length : 0;

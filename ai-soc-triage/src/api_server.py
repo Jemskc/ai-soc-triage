@@ -45,9 +45,13 @@ app.add_middleware(
 # ─────────────────────────────────────────────────────────────
 
 SOC_SYSTEM = (
-    "You are an expert SOC analyst with 10 years of experience in incident response, "
-    "threat hunting, and digital forensics. Give concise, actionable answers. "
-    "Reference specific IPs, users, and hostnames from the data when relevant. "
+    "You are an expert SOC analyst and security assistant with 10 years of experience in "
+    "incident response, threat hunting, and digital forensics. "
+    "Answer questions naturally and conversationally. "
+    "You have access to the user's dashboard data — only reference it when the user asks about "
+    "their dashboard, alerts, logs, or specific events in their environment. "
+    "For greetings, general security questions, or anything not about the dashboard, "
+    "respond normally without mentioning the dashboard data at all. "
     "Format lists with bullet points. Keep responses under 400 words unless detail is critical."
 )
 
@@ -272,6 +276,7 @@ class ChatRequest(BaseModel):
     log: dict[str, Any] = {}
     email: dict[str, Any] = {}
     history: list[dict[str, Any]] = []
+    dashboard_context: str = ""
 
 
 class LogSearchRequest(BaseModel):
@@ -342,7 +347,12 @@ def _resolve_chat_request(req: ChatRequest) -> tuple[str, int, list[dict]]:
         for h in req.history
         if h.get("role") in ("user", "assistant")
     ]
-    return user_message, max_tokens, api_history
+
+    system = SOC_SYSTEM
+    if req.dashboard_context:
+        system = SOC_SYSTEM + f"\n\nCurrent dashboard state:\n{req.dashboard_context}"
+
+    return user_message, max_tokens, api_history, system
 
 
 @app.post("/chat")
@@ -351,9 +361,9 @@ def chat(req: ChatRequest):
     if backend is None:
         return {"response": "No LLM backend configured. Set LOCAL_MODEL_NAME in .env.", "error": True}
     try:
-        user_message, max_tokens, api_history = _resolve_chat_request(req)
+        user_message, max_tokens, api_history, system = _resolve_chat_request(req)
         response = backend.generate_text(
-            system=SOC_SYSTEM,
+            system=system,
             user=user_message,
             max_tokens=max_tokens,
             history=api_history,
@@ -375,7 +385,7 @@ def chat_stream(req: ChatRequest):
         return StreamingResponse(_err(), media_type="text/event-stream")
 
     try:
-        user_message, max_tokens, api_history = _resolve_chat_request(req)
+        user_message, max_tokens, api_history, system = _resolve_chat_request(req)
     except Exception as exc:
         def _err():
             yield f"data: {json.dumps(f'Request error: {exc}')}\n\n"
@@ -384,7 +394,7 @@ def chat_stream(req: ChatRequest):
 
     def token_gen():
         try:
-            for chunk in backend.generate_stream(SOC_SYSTEM, user_message, max_tokens, api_history):
+            for chunk in backend.generate_stream(system, user_message, max_tokens, api_history):
                 if chunk:
                     yield f"data: {json.dumps(chunk)}\n\n"
         except Exception as exc:
