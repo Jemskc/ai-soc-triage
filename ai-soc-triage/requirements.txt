@@ -6,6 +6,7 @@ python-dotenv>=1.0.0
 streamlit>=1.35.0
 plotly>=5.18.0
 watchdog>=3.0.0
+requests>=2.31.0
 
 # Local model inference
 # torch and transformers are typically pre-installed in GPU environments.

@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from llm_backend import get_llm_backend
 from ai_triage import triage_alert
+from threat_intel import enrich_email_threat_intel
 
 
 @asynccontextmanager
@@ -435,13 +436,18 @@ def log_search(req: LogSearchRequest):
 
 @app.post("/email-analyze")
 def email_analyze(req: EmailAnalyzeRequest):
-    """Comprehensive AI threat assessment for the Email Analysis AI tab."""
+    """Comprehensive AI threat assessment for the Email Analysis AI tab with automated Threat Intelligence enrichment."""
     backend = get_llm_backend()
     if backend is None:
         return {"analysis": "AI backend not configured.", "error": True}
 
     try:
         email = req.email
+        
+        # AUTOMATED THREAT INTELLIGENCE ENRICHMENT
+        # This automatically checks VirusTotal, Whois, AbuseIPDB, and Shodan
+        threat_intel = enrich_email_threat_intel(email)
+        
         subject    = email.get("subject", "(No Subject)")
         from_      = email.get("from", "")
         date       = email.get("date", "")
@@ -467,9 +473,27 @@ def email_analyze(req: EmailAnalyzeRequest):
         ) or "  None"
 
         body_preview = (body_text or "")[:300].replace("\n", " ").strip()
+        
+        # Build threat intelligence summary for the AI
+        ti_summary = []
+        if threat_intel.get("summary"):
+            ti_summary.append(f"Overall TI Risk: {threat_intel['summary']['overall_risk'].upper()}")
+            ti_summary.append(f"Critical IOCs: {threat_intel['summary']['critical_iocs']}")
+            ti_summary.append(f"High-risk IOCs: {threat_intel['summary']['high_risk_iocs']}")
+            
+            # Add key findings from enriched IOCs
+            for ioc in threat_intel.get("iocs", [])[:5]:
+                if ioc.get("virus_total") and ioc["virus_total"].get("reputation"):
+                    ti_summary.append(f"{ioc['type']} {ioc['value']}: VT={ioc['virus_total']['reputation']} ({ioc['virus_total'].get('malicious', 0)} malicious)")
+                if ioc.get("whois") and ioc["whois"].get("is_new_domain"):
+                    ti_summary.append(f"Domain {ioc['value']}: NEW ({ioc['whois']['age_days']} days old)")
+                if ioc.get("abuse_ipdb") and ioc["abuse_ipdb"].get("abuse_score", 0) > 50:
+                    ti_summary.append(f"IP {ioc['value']}: AbuseIPDB score={ioc['abuse_ipdb']['abuse_score']}%")
+
+        ti_context = "\n".join(ti_summary) if ti_summary else "No external threat intel data available (API keys not configured)"
 
         prompt = (
-            f"Perform a comprehensive threat assessment of this email.\n\n"
+            f"Perform a comprehensive threat assessment of this email WITH automated threat intelligence enrichment.\n\n"
             f"Subject: {subject}\nFrom: {from_}\nDate: {date}\n"
             f"SPF: {spf.upper()}\nDKIM: {dkim.upper()}\nDMARC: {dmarc.upper()}\n"
             f"Risk Score: {risk_score}/100 ({risk_label})\n"
@@ -479,12 +503,13 @@ def email_analyze(req: EmailAnalyzeRequest):
             f"Suspicious URLs:\n{url_lines}\n"
             f"High-risk Attachments:\n{att_lines}\n"
             f"Body preview: {body_preview or '(empty)'}\n\n"
-            "Provide a structured assessment with:\n"
-            "1. Verdict: Malicious / Suspicious / Benign (with confidence %)\n"
-            "2. Attack technique (e.g. spear-phishing, BEC, malware dropper)\n"
-            "3. Top threat indicators (bullet list, max 4)\n"
-            "4. Recommended action (1-2 sentences)\n"
-            "Keep total response under 280 words."
+            f"AUTOMATED THREAT INTELLIGENCE RESULTS:\n{ti_context}\n\n"
+            f"Provide a structured assessment with:\n"
+            f"1. Verdict: Malicious / Suspicious / Benign (with confidence %)\n"
+            f"2. Attack technique (e.g. spear-phishing, BEC, malware dropper)\n"
+            f"3. Top threat indicators including threat intel findings (bullet list, max 4)\n"
+            f"4. Recommended action with specific IOC blocking recommendations (1-2 sentences)\n"
+            f"Keep total response under 280 words."
         )
 
         analysis = backend.generate_text(
@@ -492,7 +517,12 @@ def email_analyze(req: EmailAnalyzeRequest):
             user=prompt,
             max_tokens=400,
         )
-        return {"analysis": analysis}
+        
+        # Return both AI analysis and raw threat intel data
+        return {
+            "analysis": analysis,
+            "threat_intelligence": threat_intel
+        }
 
     except Exception as exc:
         return {"analysis": f"Analysis error: {exc}", "error": True}
