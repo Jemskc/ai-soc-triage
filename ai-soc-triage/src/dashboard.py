@@ -832,23 +832,11 @@ def main() -> None:
     # Apply filters.
     filtered_alerts = _apply_filters(alerts, filters)
 
-    # Search bar (full width, above tabs).
-    _render_search_bar(logs_df, alerts)
-
-    # Main tabs.
-    tab1, tab2, tab3, tab4 = st.tabs(["📋 Dashboard", "📊 Analytics", "🔬 Log Explorer", "✨ Custom Views"])
+    # Main tabs - Simplified for phishing focus.
+    tab1 = st.tabs(["📋 Phishing Alerts Dashboard"])
 
     with tab1:
         _render_dashboard_tab(filtered_alerts)
-
-    with tab2:
-        _render_analytics_tab(filtered_alerts, logs_df)
-
-    with tab3:
-        _render_log_explorer_tab(logs_df)
-
-    with tab4:
-        _render_custom_views_tab(logs_df, alerts)
 
     # Floating chat (renders at bottom of page).
     _render_chat_panel(logs_df, alerts)
