@@ -114,6 +114,7 @@ export default function Header({ logs, fileInfo, onImport, onSearch, sidebarOpen
 
       <input
         ref={fileRef}
+        data-import
         type="file"
         accept=".json,.csv,.log,.txt"
         className="hidden"

@@ -42,3 +42,10 @@ npm-debug.log*
 
 # HuggingFace model cache — too large for git
 hf_cache/
+
+# Generated analysis artefacts. These embed host names and account names from
+# whatever telemetry was analysed, so they must not reach a public repo.
+soc-sentinel/public/events.json
+ai-soc-eval/lanl_results.json
+ai-soc-eval/selftest/
+ai-soc-triage/data/inventory.json

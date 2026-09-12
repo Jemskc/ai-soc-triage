@@ -1,8 +1,9 @@
+import { API_BASE as apiBase } from '../utils/api';
 import { useState, useRef, useEffect } from 'react';
 import { Bot, Send, Loader, WifiOff, Sparkles } from 'lucide-react';
 import { NAV_ITEMS, NAV_LABELS } from '../data/navConfig';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = apiBase;
 
 const SUGGESTED = [
   'What are signs of a brute force attack?',

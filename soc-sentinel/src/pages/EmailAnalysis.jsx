@@ -1,3 +1,4 @@
+import { API_BASE as apiBase } from '../utils/api';
 import { useState, useRef, useEffect } from 'react';
 import {
   Upload, FileText, Loader, AlertTriangle, CheckCircle, Minus,
@@ -72,9 +73,7 @@ const TABS = [
   { id: 'ai',           label: 'AI Analysis',  icon: Brain },
 ];
 
-const API_BASE = typeof import.meta !== 'undefined'
-  ? (import.meta.env.VITE_API_URL || 'http://localhost:8000')
-  : 'http://localhost:8000';
+const API_BASE = apiBase;
 
 function EmailDetailPanel({ email, onStatusChange, onSendToAI, onSearchLogs }) {
   const [tab, setTab] = useState('overview');

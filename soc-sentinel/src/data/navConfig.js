@@ -1,10 +1,11 @@
 import {
   LayoutDashboard, AlertTriangle, Search, Crosshair,
-  Monitor, FileText, BookOpen, Settings, Terminal, Mail,
+  Monitor, FileText, BookOpen, Settings, Terminal, Mail, Bot, Upload, FileSearch, MessageCircleQuestion,
 } from 'lucide-react';
 
 export const NAV_ITEMS = [
   { id: 'overview',       icon: LayoutDashboard, label: 'Overview' },
+  { id: 'soccore',        icon: Bot,             label: 'AI SOC Core' },
   { id: 'alerts',         icon: AlertTriangle,   label: 'Alerts',         badge: true },
   { id: 'logs',           icon: Terminal,        label: 'Logs Explorer' },
   { id: 'investigations', icon: Search,          label: 'Investigations' },
@@ -13,6 +14,9 @@ export const NAV_ITEMS = [
   { id: 'assets',         icon: Monitor,         label: 'Assets' },
   { id: 'reports',        icon: FileText,        label: 'Reports' },
   { id: 'playbooks',      icon: BookOpen,        label: 'Playbooks' },
+  { id: 'ingest',         icon: Upload,          label: 'Ingest Logs' },
+  { id: 'questions',      icon: MessageCircleQuestion, label: 'Agent Questions' },
+  { id: 'audit',          icon: FileSearch,      label: 'Audit Trail' },
   { id: 'settings',       icon: Settings,        label: 'Settings' },
 ];
 

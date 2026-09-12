@@ -135,3 +135,105 @@
     - field: command_line
       operator: regex
       value: "(?i)(vssadmin\\s+delete\\s+shadows|wmic\\s+shadowcopy\\s+delete)"
+
+# ---------------------------------------------------------------------------
+# Authentication-centric rules.
+#
+# The rules above are process-centric — rare binaries, command lines, parent
+# lineage. Authentication telemetry (Windows Security 4624/4625/4768/4769, or
+# a dataset like LANL Cyber-1) carries none of those fields, so none of them
+# can fire on it. Measured on auth-only data the process rules detected
+# nothing at all. These cover the shapes that are visible in auth logs.
+# ---------------------------------------------------------------------------
+
+- id: RULE-011
+  name: Credential Sweep Across Hosts
+  description: >
+    One account authenticating to an unusual number of distinct destinations in
+    a short window. This is the primary lateral-movement signature in
+    authentication data: fifty logons to one server are routine, six to six
+    different servers inside two minutes are not.
+  mitre_id: T1021
+  mitre_name: Remote Services
+  mitre_technique: T1021 - Remote Services
+  severity: critical
+  type: threshold
+  group_by: user
+  distinct_field: computer
+  threshold: 5
+  window_seconds: 120
+  conditions:
+    - field: event_id
+      operator: equals
+      value: "4624"
+
+- id: RULE-012
+  name: Failed Logon Burst Against One Account
+  description: Repeated authentication failures for a single account — password guessing.
+  mitre_id: T1110.001
+  mitre_name: Password Guessing
+  mitre_technique: T1110.001 - Brute Force Password Guessing
+  severity: high
+  type: threshold
+  group_by: user
+  threshold: 8
+  window_seconds: 300
+  conditions:
+    - field: event_id
+      operator: equals
+      value: "4625"
+
+- id: RULE-013
+  name: Password Spray From One Source
+  description: >
+    One source authenticating unsuccessfully against many different accounts.
+    Distinguished from brute force by breadth rather than depth — a handful of
+    attempts per account, spread wide, to stay under lockout thresholds.
+  mitre_id: T1110.003
+  mitre_name: Password Spraying
+  mitre_technique: T1110.003 - Brute Force Password Spraying
+  severity: critical
+  type: threshold
+  group_by: source_ip
+  distinct_field: user
+  threshold: 6
+  window_seconds: 600
+  conditions:
+    - field: event_id
+      operator: equals
+      value: "4625"
+
+- id: RULE-014
+  name: Source Host Fan-Out
+  description: >
+    One source machine authenticating outward to many destinations quickly —
+    the shape of a compromised host being used as a pivot.
+  mitre_id: T1021.002
+  mitre_name: SMB Windows Admin Shares
+  mitre_technique: T1021.002 - Remote Services SMB Windows Admin Shares
+  severity: high
+  type: threshold
+  group_by: source_ip
+  distinct_field: computer
+  threshold: 8
+  window_seconds: 300
+  conditions:
+    - field: event_id
+      operator: equals
+      value: "4624"
+
+- id: RULE-015
+  name: NTLM Authentication Where Kerberos Is Expected
+  description: >
+    Explicit NTLM in a Kerberos domain. Legitimate in pockets, but it is also
+    what pass-the-hash produces, and it is worth surfacing when it accompanies
+    other signals.
+  mitre_id: T1550.002
+  mitre_name: Pass the Hash
+  mitre_technique: T1550.002 - Use Alternate Authentication Material Pass the Hash
+  severity: medium
+  type: pattern
+  conditions:
+    - field: raw_message
+      operator: regex
+      value: "(?i)\\bntlm\\b"

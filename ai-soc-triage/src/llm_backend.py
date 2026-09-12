@@ -120,19 +120,36 @@ class LocalHFBackend(LLMBackend):
         """Gemma rejects a system role — fold it into the user turn."""
         return self._model_family() == "gemma"
 
+    @staticmethod
+    def _select_dtype():
+        """Pick the fastest dtype the GPU natively supports.
+
+        torch.cuda.is_bf16_supported() reports True on Volta because newer torch
+        counts *emulated* bf16. Measured on a V100-PCIE-32GB (SM 7.0), emulated
+        bf16 runs at 9.5 TFLOP/s against 84.7 for fp16 — an 8.9x penalty. Gate on
+        compute capability instead: native bf16 starts at SM 8.0 (Ampere).
+        """
+        import torch
+
+        if not torch.cuda.is_available():
+            return torch.float32
+        major, _ = torch.cuda.get_device_capability()
+        return torch.bfloat16 if major >= 8 else torch.float16
+
     def _load(self) -> None:
         if self._loaded:
             return
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        print(f"[+] Loading model: {self._model_name}")
+        dtype = self._select_dtype()
+        print(f"[+] Loading model: {self._model_name} (dtype={dtype})")
         self._tokenizer = AutoTokenizer.from_pretrained(
             self._model_name, trust_remote_code=True
         )
         self._model = AutoModelForCausalLM.from_pretrained(
             self._model_name,
-            dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+            dtype=dtype,
             device_map="auto" if torch.cuda.is_available() else None,
             trust_remote_code=True,
         )

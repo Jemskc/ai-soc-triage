@@ -25,6 +25,21 @@ import Settings from './components/pages/Settings';
 
 import { AlertTriangle, Shield, Globe, Users, Loader } from 'lucide-react';
 
+import { AnalysisProvider, useAnalysis } from './context/AnalysisContext';
+import AnalysisProgress, { DataSourceBadge } from './components/AnalysisProgress';
+import AISituationReport from './components/overview/AISituationReport';
+import AnalysisCoverage from './components/AnalysisCoverage';
+import LiveAgentActivity from './components/LiveAgentActivity';
+import AIAttackChain from './components/investigations/AIAttackChain';
+import AIAssetRisk from './components/pages/AIAssetRisk';
+import AIHuntHypotheses from './components/pages/AIHuntHypotheses';
+import BenchmarkReport from './components/pages/BenchmarkReport';
+import Playbooks from './components/pages/Playbooks';
+import SOCCore from './components/agents/SOCCore';
+import AuditLog from './components/pages/AuditLog';
+import AnalystQuestions from './components/pages/AnalystQuestions';
+import IngestPanel from './components/pages/IngestPanel';
+
 function LoadingOverlay({ progress, total }) {
   const pct = total > 0 ? Math.round((progress / total) * 100) : 0;
   return (
@@ -50,6 +65,18 @@ function Toast({ message, type = 'error' }) {
 }
 
 export default function App() {
+  // The provider owns the AI analysis bundle that every tab reads from.
+  // Raw logs are passed as the fallback so the dashboard still renders (clearly
+  // badged as demo data) when the analysis backend is unreachable.
+  return (
+    <AnalysisProvider fallbackLogs={MOCK_LOGS}>
+      <Dashboard />
+    </AnalysisProvider>
+  );
+}
+
+function Dashboard() {
+  const { incidentsByUrgency, isReady, events: analysisEvents, metrics } = useAnalysis();
   const [logs, setLogs] = useState(null);
   const [fileInfo, setFileInfo] = useState(null);
   const [selectedAlert, setSelectedAlert] = useState(null);
@@ -124,10 +151,27 @@ export default function App() {
     setActiveNav('alerts');
   }
 
-  const loaded = logs !== null && logs.length > 0;
+  // AI output references incidents by id; every tab that shows one links back
+  // to its verdict in the Alerts view.
+  function jumpToIncident(incidentId) {
+    const match = incidentsByUrgency.find(i => i.incident_id === incidentId);
+    if (!match) return;
+    handleSelectAlert({ ...match, id: match.incident_id });
+    setSearchQuery('');
+    setActiveNav('alerts');
+  }
+
+  // A completed backend analysis is enough to show the dashboard: the tabs
+  // render from the analysis bundle, not from a locally parsed file.
+  const loaded = (logs !== null && logs.length > 0) || isReady;
+
+  // A locally imported file wins, because the analyst chose it. Otherwise fall
+  // back to the events the backend published, so the log views show the data
+  // the analysis was actually built from rather than nothing.
+  const safeLogs = (logs && logs.length > 0) ? logs : analysisEvents;
 
   const filteredBySearch = loaded && searchQuery
-    ? logs.filter(l => {
+    ? safeLogs.filter(l => {
         const q = searchQuery.toLowerCase();
         return l.message?.toLowerCase().includes(q) ||
                l.rule?.toLowerCase().includes(q) ||
@@ -135,7 +179,7 @@ export default function App() {
                l.user?.toLowerCase().includes(q) ||
                l.host?.toLowerCase().includes(q);
       })
-    : logs;
+    : safeLogs;
 
   function renderContent() {
     if (activeNav === 'email') {
@@ -148,25 +192,44 @@ export default function App() {
     }
     if (!loaded) return <ImportScreen onImport={handleImport} onSampleData={handleSampleData} />;
 
+
     switch (activeNav) {
       case 'overview':
         return (
           <div className="flex-1 overflow-y-auto p-4 space-y-4 animate-fadeIn">
+            {/* What is happening, before how many of it there are. */}
+            <LiveAgentActivity />
+            <AISituationReport onSelectIncident={jumpToIncident} />
+            {/* Answers "did the AI actually check this?" before anything else
+                on the page invites the reader to assume it did. */}
+            <AnalysisCoverage />
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <KPICard label="Total Events" value={logs.length} icon={Shield} color="#3b82f6" sub="from imported file" />
-              <KPICard label="Critical Alerts" value={logs.filter(l => l.severity === 'CRITICAL').length} icon={AlertTriangle} color="#ef4444" sub="immediate action required" />
-              <KPICard label="Unique Source IPs" value={new Set(logs.map(l => l.sourceIP)).size} icon={Globe} color="#f97316" sub="distinct attacker addresses" />
-              <KPICard label="Unique Users" value={new Set(logs.map(l => l.user).filter(u => u !== 'Unknown')).size} icon={Users} color="#a855f7" sub="affected accounts" />
+              <KPICard
+                label="Total Events"
+                value={metrics?.events_ingested ?? safeLogs.length}
+                icon={Shield}
+                color="#3b82f6"
+                sub={metrics ? `${safeLogs.length.toLocaleString()} published to views` : 'from imported file'}
+              />
+              <KPICard
+                label={metrics ? 'Incidents' : 'Critical Alerts'}
+                value={metrics?.incidents ?? safeLogs.filter(l => l.severity === 'CRITICAL').length}
+                icon={AlertTriangle}
+                color="#ef4444"
+                sub={metrics ? `${metrics.rule_alerts} rule alerts correlated` : 'immediate action required'}
+              />
+              <KPICard label="Unique Source IPs" value={new Set(safeLogs.map(l => l.sourceIP)).size} icon={Globe} color="#f97316" sub="distinct attacker addresses" />
+              <KPICard label="Unique Users" value={new Set(safeLogs.map(l => l.user).filter(u => u !== 'Unknown')).size} icon={Users} color="#a855f7" sub="affected accounts" />
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2">
-                <ThreatTrendChart logs={logs} />
+                <ThreatTrendChart logs={safeLogs} />
               </div>
-              <SeverityDonut logs={logs} />
+              <SeverityDonut logs={safeLogs} />
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <TopSourcesTable logs={logs} />
-              <RecentAlertsTable logs={logs} onSelect={alert => { handleSelectAlert(alert); setActiveNav('alerts'); }} />
+              <TopSourcesTable logs={safeLogs} />
+              <RecentAlertsTable logs={safeLogs} onSelect={alert => { handleSelectAlert(alert); setActiveNav('alerts'); }} />
             </div>
           </div>
         );
@@ -175,7 +238,8 @@ export default function App() {
         return (
           <div className="flex-1 overflow-y-auto p-4">
             <AlertsPage
-              logs={searchQuery ? (filteredBySearch ?? []) : logs}
+              logs={safeLogs}
+              externalQuery={searchQuery}
               selectedAlert={selectedAlert}
               onSelect={a => { handleSelectAlert(a); setSearchQuery(''); }}
             />
@@ -185,7 +249,7 @@ export default function App() {
       case 'logs':
         return (
           <LogsExplorer
-            logs={logs}
+            logs={safeLogs}
             onSelectLog={handleSelectLog}
             onInvestigate={log => { handleSelectAlert(log); setActiveNav('investigations'); }}
           />
@@ -194,27 +258,60 @@ export default function App() {
 
       case 'investigations':
         return (
-          <div className="flex-1 overflow-y-auto p-4">
-            <InvestigationTimeline logs={logs} selectedAlert={selectedAlert} />
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <AIAttackChain onSelectIncident={jumpToIncident} />
+            <InvestigationTimeline logs={safeLogs} selectedAlert={selectedAlert} />
           </div>
         );
 
       case 'hunting':
-        return <div className="flex-1 overflow-y-auto p-4"><ThreatHunting logs={logs} /></div>;
+        return (
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <AIHuntHypotheses onRunQuery={q => { setSearchQuery(q); setActiveNav('logs'); }} />
+            <ThreatHunting logs={safeLogs} />
+          </div>
+        );
 
       case 'assets':
-        return <div className="flex-1 overflow-y-auto p-4"><Assets logs={logs} /></div>;
+        return (
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <AIAssetRisk onSelectIncident={jumpToIncident} />
+            <Assets logs={safeLogs} />
+          </div>
+        );
 
       case 'reports':
-        return <div className="flex-1 overflow-y-auto p-4"><Reports logs={logs} fileInfo={fileInfo} /></div>;
+        return (
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <BenchmarkReport />
+            <Reports logs={safeLogs} fileInfo={fileInfo} />
+          </div>
+        );
+
+      case 'soccore':
+        return (
+          <div className="flex-1 overflow-y-auto p-4">
+            <SOCCore onSelectIncident={jumpToIncident} />
+          </div>
+        );
 
       case 'playbooks':
+        return <div className="flex-1 overflow-y-auto p-4"><Playbooks /></div>;
+
+      case 'questions':
+        return <div className="flex-1 overflow-y-auto p-4"><AnalystQuestions /></div>;
+
+      case 'audit':
+        return <div className="flex-1 overflow-y-auto p-4"><AuditLog /></div>;
+
+      case 'ingest':
         return (
-          <div className="flex-1 flex items-center justify-center text-muted animate-fadeIn">
-            <div className="text-center space-y-2">
-              <p className="text-primary font-medium">Playbooks</p>
-              <p className="text-xs">Automated response playbooks coming soon.</p>
-            </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            <IngestPanel
+              onImport={handleImport}
+              onSampleData={handleSampleData}
+              fileInfo={fileInfo}
+            />
           </div>
         );
 
@@ -233,6 +330,7 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col bg-base overflow-hidden">
       {loading && <LoadingOverlay progress={loadProgress.done} total={loadProgress.total} />}
+      <AnalysisProgress />
       {toast && <Toast message={toast.msg} type={toast.type} />}
 
       <Header
@@ -246,13 +344,20 @@ export default function App() {
         onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
       />
 
+      {/* States plainly whether the screen is showing a real analysis run or
+          bundled demo data. Mock output must never read as real. */}
+      <div className="flex items-center gap-2 px-4 py-1 border-b border-border bg-panel">
+        <DataSourceBadge />
+        <AnalystQuestions compact />
+      </div>
+
       <div className="flex flex-1 overflow-hidden">
         {(loaded || true) && (
           <Sidebar
             active={activeNav}
             onNav={id => { setActiveNav(id); setSearchQuery(''); }}
             collapsed={!sidebarOpen}
-            logs={logs}
+            logs={safeLogs}
             fileInfo={fileInfo}
           />
         )}
@@ -262,7 +367,7 @@ export default function App() {
         </main>
 
         <AIPanel
-          logs={logs}
+          logs={safeLogs}
           activeNav={activeNav}
           selectedAlert={selectedAlert}
         />

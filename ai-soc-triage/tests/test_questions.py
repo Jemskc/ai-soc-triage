@@ -1,0 +1,138 @@
+"""The agent asking a human, and the case resuming when answered.
+
+Autonomy without a way to ask is a false choice: an agent that must either
+decide alone or give up will escalate everything ambiguous and recreate the
+queue this system exists to remove.
+"""
+
+import time
+
+import pytest
+
+from agent_tools import AskedHuman, ToolBox
+from questions import Question, QuestionStore
+
+
+@pytest.fixture
+def store(tmp_path):
+    return QuestionStore(tmp_path / "q.json")
+
+
+# --- the tool ---------------------------------------------------------------
+
+def test_asking_raises_rather_than_returning():
+    """It has to unwind the loop so the case can be parked with its transcript
+    rather than the agent carrying on without an answer."""
+    tb = ToolBox(None, None)
+    with pytest.raises(AskedHuman) as caught:
+        tb.run(1, "ask_analyst", {"question": "Was this change window approved?",
+                                  "why": "would make it routine"})
+    assert "change window" in caught.value.question
+
+
+def test_asking_can_be_disabled():
+    tb = ToolBox(None, None, allow_ask_human=False)
+    call = tb.run(1, "ask_analyst", {"question": "anything?"})
+    assert call.result["available"] is False
+
+
+def test_empty_question_is_rejected():
+    tb = ToolBox(None, None)
+    assert "error" in tb.run(1, "ask_analyst", {"question": "  "}).result
+
+
+# --- the store --------------------------------------------------------------
+
+def test_question_starts_waiting(store):
+    q = store.ask("INC-1", "Is SRV01 in a maintenance window?")
+    assert q.status == "waiting"
+    assert store.waiting() == [q]
+
+
+def test_one_open_question_per_incident(store):
+    """An agent that queues five questions about one case has not understood
+    the case."""
+    first = store.ask("INC-1", "question one")
+    second = store.ask("INC-1", "question two")
+    assert first.question_id == second.question_id
+    assert len(store.waiting()) == 1
+
+
+def test_answering_records_who_and_when(store):
+    q = store.ask("INC-1", "expected?")
+    store.answer(q.question_id, "No, unexpected", analyst="jems")
+    answered = store.answered_for("INC-1")
+    assert answered.answer == "No, unexpected"
+    assert answered.answered_by == "jems"
+    assert answered.status == "answered"
+
+
+def test_answering_twice_is_refused(store):
+    q = store.ask("INC-1", "expected?")
+    store.answer(q.question_id, "first")
+    assert store.answer(q.question_id, "second") is None
+
+
+def test_resume_state_survives(store):
+    """Answering must resume the investigation, not restart it — the GPU time
+    already spent is not thrown away."""
+    q = store.ask("INC-1", "expected?", resume_state={"transcript": [{"step": 1}],
+                                                      "asset_checked": True})
+    store.answer(q.question_id, "yes")
+    resumed = store.answered_for("INC-1")
+    assert resumed.resume_state["asset_checked"] is True
+    assert resumed.resume_state["transcript"] == [{"step": 1}]
+
+
+def test_unanswered_questions_expire(store):
+    """A case parked indefinitely is a case nobody is triaging."""
+    q = store.ask("INC-1", "expected?")
+    q.asked_at = time.time() - (q.ttl_seconds + 60)
+    assert q.status == "expired"
+    assert store.waiting() == []
+    assert store.expire_stale() == [q]
+
+
+def test_store_survives_restart(tmp_path):
+    path = tmp_path / "q.json"
+    q = QuestionStore(path).ask("INC-1", "expected?", resume_state={"transcript": []})
+    reloaded = QuestionStore(path)
+    assert q.question_id in reloaded.questions
+
+
+def test_stats_report_the_backlog(store):
+    store.ask("INC-1", "a")
+    store.ask("INC-2", "b")
+    answered = store.ask("INC-3", "c")
+    store.answer(answered.question_id, "yes")
+    stats = store.stats()
+    assert stats["waiting"] == 2
+    assert stats["by_status"]["answered"] == 1
+
+
+# --- wiring -----------------------------------------------------------------
+
+def test_investigator_accepts_resume_state():
+    import inspect
+
+    from investigator import Investigator
+
+    assert "resume" in inspect.signature(Investigator.run).parameters
+
+
+def test_orchestrator_threads_resume_through():
+    import inspect
+
+    from orchestrator import Orchestrator
+
+    assert "resume" in inspect.signature(Orchestrator.run_case).parameters
+
+
+def test_autopilot_can_resume_an_answered_case():
+    import inspect
+
+    import autopilot
+
+    assert hasattr(autopilot.Autopilot, "resume_answered")
+    src = inspect.getsource(autopilot.Autopilot.resume_answered)
+    assert "_pending.insert(0" in src, "answered cases should jump the queue"

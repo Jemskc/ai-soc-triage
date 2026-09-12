@@ -20,15 +20,50 @@ from llm_backend import get_llm_backend
 from ai_triage import triage_alert
 
 
+def _engine_factory():
+    """Built lazily: the autopilot only needs it once a case reaches an agent."""
+    from ai_engine import AIEngine
+    return AIEngine()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Eagerly load Qwen3-4B at startup so the first request is fast."""
-    print("[+] Pre-loading Qwen3-4B into GPU memory...")
+    """Load the model, then start continuous analysis.
+
+    Both belong here rather than in an @app.on_event("startup") hook: FastAPI
+    ignores on_event entirely once a lifespan is supplied, so a hook there
+    silently never runs and the server comes up idle.
+    """
+    print("[+] Pre-loading model into GPU memory...")
     backend = get_llm_backend()
     if backend is not None:
         backend._load()
         print(f"[+] Model ready: {backend.model_label}")
+
+    import autopilot as _ap
+    pilot = _ap.get_autopilot(engine_factory=_engine_factory)
+    pilot.start(watch_inbox=True)
+    print(f"[+] Autopilot running — watching {_ap.INBOX_DIR}", flush=True)
+
+    # Feed the resident telemetry in automatically. The whole point is that
+    # analysis happens because logs exist, not because someone pressed a
+    # button, so the system must not sit idle waiting to be told to start.
+    import threading as _th
+
+    def _seed() -> None:
+        try:
+            import pipeline as _pl
+            df = _pl.load_corpus_dataframe()
+            pilot.submit(df, origin="startup-corpus")
+            print(f"[+] Auto-ingested {len(df):,} events — analysis started", flush=True)
+        except Exception as exc:  # noqa: BLE001 — seeding must never block boot
+            print(f"[!] Auto-ingest skipped: {exc}", flush=True)
+
+    _th.Thread(target=_seed, daemon=True).start()
+
     yield
+
+    pilot.stop()
 
 
 app = FastAPI(title="SOC Triage AI", version="2.0.0", lifespan=lifespan)
@@ -515,6 +550,602 @@ def analyze(req: AnalyzeRequest):
         return {"analysis": result}
     except Exception as exc:
         return {"analysis": None, "error": str(exc)}
+
+
+# ─────────────────────────────────────────────────────────────
+# Analysis pipeline — the tab-aware AI engine
+# ─────────────────────────────────────────────────────────────
+
+import threading
+import uuid as _uuid
+from pathlib import Path as _Path
+
+import pipeline as _pipeline
+from knowledge_base import get_kb as _get_kb
+from tab_contracts import as_json as _contracts_json
+
+# Background jobs, keyed by id. Single-process and in-memory, which is the right
+# scope here: one analyst, one box, one run at a time.
+_JOBS: dict[str, _pipeline.JobState] = {}
+_JOB_LOCK = threading.Lock()
+
+FEEDBACK_PATH = _Path(__file__).resolve().parent.parent / "output" / "analyst_feedback.json"
+
+
+class AnalyzeLogsRequest(BaseModel):
+    limit_incidents: int | None = None
+    use_cache: bool = True
+    campaign_tabs: list[str] | None = None
+    # How many incidents get the full agent treatment. Declared explicitly:
+    # pydantic drops undeclared fields, so a caller passing ai_budget was
+    # silently given the default instead.
+    ai_budget: int = 40
+    use_funnel: bool = True
+
+
+class FeedbackRequest(BaseModel):
+    incident_id: str
+    agree: bool
+    note: str = ""
+    corrected_verdict: str | None = None
+
+
+def _load_bundle() -> dict[str, Any] | None:
+    """The newest usable analysis.
+
+    An in-progress snapshot is preferred only while a run is actually going, so
+    a fresh run shows progress without a half-finished bundle displacing the
+    last completed one on disk.
+    """
+    running = any(not j.done and not j.error for j in _JOBS.values())
+    candidates = (
+        [_pipeline.PARTIAL_ANALYSIS_PATH, _pipeline.ANALYSIS_PATH]
+        if running
+        else [_pipeline.ANALYSIS_PATH, _pipeline.PARTIAL_ANALYSIS_PATH]
+    )
+    for path in candidates:
+        if path.exists():
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+    return None
+
+
+def _run_job(job: _pipeline.JobState, req: AnalyzeLogsRequest) -> None:
+    try:
+        _pipeline.run_pipeline(
+            limit_incidents=req.limit_incidents,
+            use_cache=req.use_cache,
+            campaign_tabs=tuple(req.campaign_tabs or _pipeline.DEFAULT_CAMPAIGN_TABS),
+            ai_budget=req.ai_budget,
+            use_funnel=req.use_funnel,
+            job=job,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface the failure to the UI
+        job.error = str(exc)
+        job.done = True
+
+
+@app.post("/analyze-logs")
+def analyze_logs(req: AnalyzeLogsRequest):
+    """Start a background analysis run. Returns immediately with a job id."""
+    job_id = _uuid.uuid4().hex[:12]
+    job = _pipeline.JobState(job_id=job_id)
+    with _JOB_LOCK:
+        _JOBS[job_id] = job
+
+    thread = threading.Thread(target=_run_job, args=(job, req), daemon=True)
+    thread.start()
+    return {"job_id": job_id, "status": job.to_dict()}
+
+
+@app.get("/analyze-status/{job_id}")
+def analyze_status(job_id: str):
+    job = _JOBS.get(job_id)
+    if job is None:
+        return {"error": f"unknown job {job_id}"}
+    return job.to_dict()
+
+
+@app.get("/analysis")
+def get_analysis():
+    """The bundle every tab renders from."""
+    bundle = _load_bundle()
+    if bundle is None:
+        return {"incidents": [], "verdicts": {}, "campaign": {}, "metrics": None}
+    return bundle
+
+
+@app.get("/incidents")
+def get_incidents(verdict: str | None = None, limit: int | None = None):
+    bundle = _load_bundle() or {}
+    incidents = bundle.get("incidents", [])
+    verdicts = bundle.get("verdicts", {})
+
+    enriched = []
+    for inc in incidents:
+        payload = (verdicts.get(inc["incident_id"]) or {}).get("payload") or {}
+        if verdict and str(payload.get("verdict", "")).upper() != verdict.upper():
+            continue
+        enriched.append({**inc, "ai": payload})
+
+    # Highest AI urgency first — the order an analyst should work them in.
+    enriched.sort(key=lambda i: -(i.get("ai", {}).get("urgency_score") or -1))
+    return {"incidents": enriched[:limit] if limit else enriched}
+
+
+@app.get("/incidents/{incident_id}")
+def get_incident(incident_id: str):
+    bundle = _load_bundle() or {}
+    for inc in bundle.get("incidents", []):
+        if inc["incident_id"] == incident_id:
+            record = bundle.get("verdicts", {}).get(incident_id, {})
+            return {
+                "incident": inc,
+                "ai": record.get("payload"),
+                "knowledge_used": record.get("knowledge_used", []),
+                "ungrounded_techniques": record.get("ungrounded_techniques", []),
+            }
+    return {"error": f"unknown incident {incident_id}"}
+
+
+@app.get("/events")
+def get_events(
+    offset: int = 0,
+    limit: int = 1000,
+    q: str | None = None,
+    severity: str | None = None,
+    host: str | None = None,
+    user: str | None = None,
+    event_id: str | None = None,
+):
+    """Raw event log, paginated and filterable — the SIEM log view.
+
+    Served from its own file rather than embedded in the analysis bundle: the
+    bundle is fetched on every page load, and a full corpus does not belong in
+    it. Filtering happens here so the client never has to hold everything.
+    """
+    path = _pipeline.EVENTS_PATH
+    if not path.exists():
+        return {"events": [], "total": 0, "offset": 0,
+                "error": "no events published yet — run an analysis"}
+
+    rows = json.loads(path.read_text(encoding="utf-8"))
+
+    def keep(row: dict[str, Any]) -> bool:
+        if severity and str(row.get("severity", "")).upper() != severity.upper():
+            return False
+        if host and host.lower() not in str(row.get("host", "")).lower():
+            return False
+        if user and user.lower() not in str(row.get("user", "")).lower():
+            return False
+        if event_id and str(row.get("eventId", "")) != str(event_id):
+            return False
+        if q:
+            needle = q.lower()
+            haystack = " ".join(str(row.get(k, "")) for k in
+                                ("message", "rule", "process", "commandLine",
+                                 "host", "user", "sourceIP", "eventId"))
+            if needle not in haystack.lower():
+                return False
+        return True
+
+    filtered = [r for r in rows if keep(r)] if (q or severity or host or user or event_id) else rows
+    window = filtered[offset: offset + max(1, min(limit, 5000))]
+    return {
+        "events": window,
+        "total": len(filtered),
+        "total_unfiltered": len(rows),
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+@app.get("/metrics")
+def get_metrics():
+    bundle = _load_bundle() or {}
+    return {
+        "metrics": bundle.get("metrics"),
+        "counts": bundle.get("counts"),
+        "engine_stats": bundle.get("engine_stats"),
+        "retrieval_stats": bundle.get("retrieval_stats"),
+        "config": bundle.get("config"),
+    }
+
+
+@app.get("/benchmark")
+def get_benchmark():
+    path = _pipeline.OUTPUT_DIR / "benchmark.json"
+    if not path.exists():
+        return {"error": "no benchmark yet — run scripts/benchmark.py"}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.get("/kb/search")
+def kb_search(q: str, top_k: int = 5):
+    """Expose retrieval directly, so the UI can show what grounded a verdict."""
+    try:
+        kb = _get_kb()
+    except FileNotFoundError as exc:
+        return {"error": str(exc), "results": []}
+    return {"query": q, "results": kb.search(q, top_k=top_k)}
+
+
+@app.get("/tab-contracts")
+def tab_contracts():
+    """What the AI produces for each tab — the registry, as the UI sees it."""
+    return json.loads(_contracts_json())
+
+
+@app.post("/feedback")
+def feedback(req: FeedbackRequest):
+    """Record analyst agreement.
+
+    This is the no-fine-tuning improvement path: disagreements become retrieval
+    examples that steer future verdicts on similar incidents.
+    """
+    FEEDBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    entries = []
+    if FEEDBACK_PATH.exists():
+        try:
+            entries = json.loads(FEEDBACK_PATH.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            entries = []
+
+    entries.append(
+        {
+            "incident_id": req.incident_id,
+            "agree": req.agree,
+            "note": req.note,
+            "corrected_verdict": req.corrected_verdict,
+            "recorded_at": __import__("time").strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+    )
+    FEEDBACK_PATH.write_text(json.dumps(entries, indent=1), encoding="utf-8")
+    return {"ok": True, "total_feedback": len(entries)}
+
+
+# ─────────────────────────────────────────────────────────────
+# Multi-agent SOC core
+# ─────────────────────────────────────────────────────────────
+
+CASES_PATH = _Path(__file__).resolve().parent.parent / "output" / "cases.json"
+APPROVALS_PATH = _Path(__file__).resolve().parent.parent / "output" / "approvals.json"
+
+
+class ApprovalRequest(BaseModel):
+    incident_id: str
+    action_index: int
+    approved: bool
+    analyst: str = "analyst"
+    note: str = ""
+
+
+def _load_cases() -> dict[str, Any] | None:
+    running = any(not j.done and not j.error for j in _JOBS.values())
+    candidates = (
+        [_pipeline.PARTIAL_CASES_PATH, CASES_PATH] if running
+        else [CASES_PATH, _pipeline.PARTIAL_CASES_PATH]
+    )
+    for path in candidates:
+        if path.exists():
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+    return None
+
+
+@app.get("/cases")
+def get_cases():
+    """The analyst work queue, ordered by fused risk score."""
+    data = _load_cases()
+    if data is None:
+        return {"queue": [], "cases": [], "telemetry_coverage": None}
+    return {
+        "queue": data.get("queue", []),
+        "telemetry_coverage": data.get("telemetry_coverage"),
+        "hunt": data.get("hunt"),
+        "agent_stats": data.get("agent_stats"),
+        "case_count": len(data.get("cases", [])),
+    }
+
+
+@app.get("/cases/{incident_id}")
+def get_case(incident_id: str):
+    """One full case file: every agent's findings, evidence by domain, risk."""
+    data = _load_cases() or {}
+    for case in data.get("cases", []):
+        if case["incident_id"] == incident_id:
+            return case
+    return {"error": f"unknown case {incident_id}"}
+
+
+@app.get("/telemetry-coverage")
+def telemetry_coverage():
+    """Which data domains have a connector, and which are blind spots."""
+    data = _load_cases() or {}
+    coverage = data.get("telemetry_coverage")
+    if coverage:
+        return coverage
+    from evidence_engine import EvidenceEngine as _EE
+    return _EE().coverage()
+
+
+@app.get("/agents")
+def list_agents():
+    """The agents in the core and what each is responsible for."""
+    from agents.hunt import HuntAgent as _H
+    from agents.intel import IntelAgent as _I
+    from agents.response import ResponseAgent as _R
+    from agents.triage import TriageAgent as _T
+    import risk_engine as _risk
+
+    return {
+        "agents": [
+            {"name": a.name, "description": a.description}
+            for a in (_T, _I, _H, _R)
+        ],
+        "risk_weights": _risk.WEIGHTS,
+        "note": (
+            "Agents supply judgement; the Risk Engine fuses it deterministically "
+            "so the same case always scores the same."
+        ),
+    }
+
+
+@app.post("/approve")
+def approve_action(req: ApprovalRequest):
+    """Record an analyst decision on a proposed response action.
+
+    Nothing is executed here. This records the human decision, which is the
+    gate the Response Agent's destructive steps are held behind.
+    """
+    APPROVALS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    entries = []
+    if APPROVALS_PATH.exists():
+        try:
+            entries = json.loads(APPROVALS_PATH.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            entries = []
+    entries.append({
+        "incident_id": req.incident_id,
+        "action_index": req.action_index,
+        "approved": req.approved,
+        "analyst": req.analyst,
+        "note": req.note,
+        "decided_at": __import__("time").strftime("%Y-%m-%dT%H:%M:%S"),
+    })
+    APPROVALS_PATH.write_text(json.dumps(entries, indent=1), encoding="utf-8")
+    return {"ok": True, "total_decisions": len(entries)}
+
+
+# ─────────────────────────────────────────────────────────────
+# Autopilot — continuous, event-driven analysis
+# ─────────────────────────────────────────────────────────────
+
+import autopilot as _autopilot
+import scoring as _scoring
+
+
+@app.get("/autopilot/status")
+def autopilot_status():
+    ap = _autopilot.get_autopilot()
+    return {**ap.state.to_dict(), "inbox": str(_autopilot.INBOX_DIR)}
+
+
+@app.post("/autopilot/start")
+def autopilot_start():
+    _autopilot.get_autopilot(engine_factory=_engine_factory).start()
+    return {"ok": True}
+
+
+@app.post("/autopilot/stop")
+def autopilot_stop():
+    _autopilot.get_autopilot().stop()
+    return {"ok": True}
+
+
+@app.get("/stream")
+def stream():
+    """Server-sent events: every stage, routing decision and finished case.
+
+    The dashboard subscribes once and updates as work lands, rather than
+    polling for a bundle that only changes at the end of a run.
+    """
+    ap = _autopilot.get_autopilot(engine_factory=_engine_factory)
+    sub = ap.bus.subscribe()
+
+    def gen():
+        # Replay recent history so a page opened mid-run is not blank.
+        for event in ap.bus.history[-30:]:
+            yield f"data: {json.dumps(event)}\n\n"
+        try:
+            while True:
+                try:
+                    event = sub.q.get(timeout=15)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except Exception:
+                    # Keep the connection alive through quiet periods.
+                    yield ": keepalive\n\n"
+        finally:
+            ap.bus.unsubscribe(sub)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
+
+
+class IngestRequest(BaseModel):
+    """Logs pushed in directly, rather than dropped in the inbox."""
+    events: list[dict[str, Any]]
+    origin: str = "api"
+
+
+@app.post("/ingest")
+def ingest(req: IngestRequest):
+    """Accept logs and return immediately — analysis happens on its own."""
+    import pandas as _pd
+
+    if not req.events:
+        return {"accepted": 0, "error": "no events supplied"}
+
+    df = _pd.DataFrame(req.events).fillna("")
+    for col in _pipeline.STANDARD_COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+    present = [c for c in _pipeline.MESSAGE_FIELDS if c in df.columns]
+    if present:
+        df["raw_message"] = df[present].astype(str).agg(" ".join, axis=1).str.strip()
+
+    ap = _autopilot.get_autopilot(engine_factory=_engine_factory)
+    ap.submit(df, origin=req.origin)
+    return {"accepted": len(df), "queued_batches": ap.inbox.qsize()}
+
+
+class AnswerRequest(BaseModel):
+    answer: str
+    analyst: str = "analyst"
+
+
+@app.get("/questions")
+def list_questions(include_answered: bool = False):
+    """Questions the agent has put to a human, oldest first.
+
+    A parked case is not a decision. Anything here is blocking an
+    investigation that has already done the work it can do alone.
+    """
+    import questions as _q
+
+    store = _q.get_store()
+    store.expire_stale()
+    items = (list(store.questions.values()) if include_answered
+             else store.waiting())
+    return {
+        "questions": [x.to_dict() for x in items],
+        "stats": store.stats(),
+    }
+
+
+@app.post("/questions/{question_id}/answer")
+def answer_question(question_id: str, req: AnswerRequest):
+    """Answer, and resume the parked investigation from where it stopped."""
+    import questions as _q
+
+    store = _q.get_store()
+    answered = store.answer(question_id, req.answer, req.analyst)
+    if answered is None:
+        return {"ok": False, "error": "unknown or already-answered question"}
+
+    ap = _autopilot.get_autopilot(engine_factory=_engine_factory)
+    ap.bus.publish("question.answered",
+                   question_id=question_id,
+                   incident_id=answered.incident_id,
+                   answer=req.answer[:200])
+    resumed = ap.resume_answered(answered)
+    return {"ok": True, "incident_id": answered.incident_id, "resumed": resumed}
+
+
+@app.get("/audit")
+def audit(limit: int = 100, q: str | None = None, band: str | None = None):
+    """Every AI decision, reconstructable.
+
+    In a regulated environment a verdict nobody can reproduce is worthless.
+    This returns the decision, the autonomy band it fell into and why, the risk
+    factors that produced the score, and every tool the agent called with what
+    came back — for each case, searchable.
+    """
+    data = _load_cases() or {}
+    entries = []
+
+    for case in data.get("cases", []):
+        investigation = case.get("investigation") or {}
+        risk = case.get("risk") or {}
+        autonomy_decision = case.get("autonomy") or {}
+        verdict = case.get("payload") or investigation.get("verdict") or {}
+        incident = case.get("incident") or {}
+
+        if band and str(autonomy_decision.get("band", "")) != band:
+            continue
+
+        record = {
+            "incident_id": case.get("incident_id"),
+            "decided_at": data.get("generated_at"),
+            "verdict": verdict.get("verdict"),
+            "confidence": verdict.get("confidence"),
+            "risk_score": risk.get("risk_score"),
+            "risk_band": risk.get("band"),
+            "risk_factors": risk.get("factors", []),
+            "risk_caveats": risk.get("caveats", []),
+            "autonomy_band": autonomy_decision.get("band"),
+            "autonomy_reasons": autonomy_decision.get("reasons", []),
+            "autonomy_overrides": autonomy_decision.get("overrides_applied", []),
+            "required_approval": autonomy_decision.get("requires_approval"),
+            "asset_criticality": case.get("asset_criticality"),
+            "hosts": incident.get("hosts", [])[:5],
+            "users": incident.get("users", [])[:5],
+            # The reconstruction: what was asked, why, and what came back.
+            "investigation": {
+                "complete": investigation.get("complete"),
+                "stopped_reason": investigation.get("stopped_reason"),
+                "step_count": investigation.get("step_count"),
+                "model_calls": investigation.get("model_calls"),
+                "parse_failures": investigation.get("parse_failures"),
+                "elapsed_seconds": investigation.get("elapsed_seconds"),
+                "steps": investigation.get("steps", []),
+            },
+            "sources_cited": verdict.get("sources", []),
+            "ungrounded_citations": case.get("agents", {}).get("triage", {}).get("ungrounded", []),
+        }
+
+        if q:
+            needle = q.lower()
+            haystack = json.dumps(record, default=str).lower()
+            if needle not in haystack:
+                continue
+        entries.append(record)
+
+    return {
+        "entries": entries[:limit],
+        "total": len(entries),
+        "note": (
+            "Each entry reconstructs one AI decision end to end: the tools "
+            "called, the reasoning, the evidence returned, the deterministic "
+            "risk factors, and the policy band applied."
+        ),
+    }
+
+
+@app.get("/audit/{incident_id}")
+def audit_one(incident_id: str):
+    result = audit(limit=10_000)
+    for entry in result["entries"]:
+        if entry["incident_id"] == incident_id:
+            return entry
+    return {"error": f"no audit record for {incident_id}"}
+
+
+@app.get("/scorecard")
+def scorecard():
+    """Ground-truth performance per feature, for the tab that owns it."""
+    from knowledge_base import get_kb as _kb
+
+    bundle = _load_bundle() or {}
+    incidents = bundle.get("incidents", [])
+    verdicts = bundle.get("verdicts", {})
+    if not incidents:
+        return {"error": "no analysis yet"}
+
+    try:
+        df = _pipeline.load_corpus_dataframe()
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"corpus unavailable: {exc}"}
+
+    tactics = {c["technique_id"]: c.get("tactics", [])
+               for c in _kb().chunks if c.get("technique_id")}
+    cases = (_load_cases() or {}).get("cases", [])
+    return _scoring.score_all(df, incidents, verdicts, tactics, cases=cases)
 
 
 if __name__ == "__main__":
