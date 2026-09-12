@@ -102,6 +102,16 @@ export const api = {
 
   // Questions the agent has put to an analyst. Answering resumes the parked
   // investigation from where it stopped.
+  // Detection engineering. The metrics are deterministic; the backtest is what
+  // makes a proposed rule change safe to act on.
+  detectionMetrics: () => request('/detection-metrics'),
+  detectionCoverage: () => request('/detection-coverage'),
+  detectionBacktest: (rule_id, field, pattern) =>
+    request('/detection-backtest', {
+      method: 'POST',
+      body: JSON.stringify({ rule_id, field, pattern }),
+    }),
+
   questions: () => request('/questions'),
   answerQuestion: (id, answer, analyst = 'analyst') =>
     request(`/questions/${id}/answer`, {

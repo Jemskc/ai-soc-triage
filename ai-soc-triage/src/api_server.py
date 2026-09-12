@@ -1047,6 +1047,74 @@ def answer_question(question_id: str, req: AnswerRequest):
     return {"ok": True, "incident_id": answered.incident_id, "resumed": resumed}
 
 
+@app.get("/detection-metrics")
+def detection_metrics_endpoint():
+    """Per-rule performance. Deterministic — no model involved."""
+    import detection_metrics as _dm
+    from detector import load_rules as _load_rules
+
+    bundle = _load_bundle() or {}
+    incidents = bundle.get("incidents", [])
+    if not incidents:
+        return {"error": "no analysis yet"}
+
+    alerts = [a for i in incidents for a in i.get("sample_alerts", [])]
+    memory = None
+    try:
+        from case_memory import CaseMemory as _CM
+        memory = _CM()
+    except Exception:  # noqa: BLE001
+        pass
+
+    return _dm.compute(_load_rules(), alerts, incidents,
+                       bundle.get("verdicts", {}), case_memory=memory)
+
+
+class BacktestRequest(BaseModel):
+    rule_id: str
+    field: str
+    pattern: str
+
+
+@app.post("/detection-backtest")
+def detection_backtest(req: BacktestRequest):
+    """What a proposed exclusion would have cost, measured against history.
+
+    The check that makes a tuning proposal trustworthy: an exclusion removing
+    90% of a rule's noise is only safe if it does not also remove the firings
+    that mattered.
+    """
+    import detection_metrics as _dm
+    from detector import load_rules as _load_rules
+
+    bundle = _load_bundle() or {}
+    try:
+        df = _pipeline.load_corpus_dataframe()
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"corpus unavailable: {exc}"}
+
+    df = df.assign(_row_index=df.index)
+    return _dm.backtest_exclusion(
+        df, _load_rules(), req.rule_id, req.field, req.pattern,
+        incidents=bundle.get("incidents", []),
+        verdicts=bundle.get("verdicts", {}),
+    )
+
+
+@app.get("/detection-coverage")
+def detection_coverage():
+    """ATT&CK techniques the collected telemetry could detect but no rule does."""
+    import detection_metrics as _dm
+    from detector import load_rules as _load_rules
+    from knowledge_base import get_kb as _kb
+
+    try:
+        df = _pipeline.load_corpus_dataframe()
+    except Exception:  # noqa: BLE001
+        df = None
+    return _dm.coverage_gaps(_load_rules(), _kb(), df)
+
+
 @app.get("/audit")
 def audit(limit: int = 100, q: str | None = None, band: str | None = None):
     """Every AI decision, reconstructable.

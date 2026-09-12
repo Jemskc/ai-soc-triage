@@ -38,6 +38,7 @@ import Playbooks from './components/pages/Playbooks';
 import SOCCore from './components/agents/SOCCore';
 import AuditLog from './components/pages/AuditLog';
 import AnalystQuestions from './components/pages/AnalystQuestions';
+import DetectionEngineering from './components/pages/DetectionEngineering';
 import IngestPanel from './components/pages/IngestPanel';
 
 function LoadingOverlay({ progress, total }) {
@@ -297,6 +298,9 @@ function Dashboard() {
 
       case 'playbooks':
         return <div className="flex-1 overflow-y-auto p-4"><Playbooks /></div>;
+
+      case 'detection':
+        return <div className="flex-1 overflow-y-auto p-4"><DetectionEngineering /></div>;
 
       case 'questions':
         return <div className="flex-1 overflow-y-auto p-4"><AnalystQuestions /></div>;

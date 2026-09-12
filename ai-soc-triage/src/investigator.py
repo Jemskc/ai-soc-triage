@@ -91,6 +91,8 @@ class Investigation:
     awaiting_human: dict[str, Any] | None = None
     steps: list[dict[str, Any]] = field(default_factory=list)
     verdict: dict[str, Any] | None = None
+    grounded_in: list[dict[str, Any]] = field(default_factory=list)
+    ungrounded_citations: list[str] = field(default_factory=list)
     complete: bool = False
     stopped_reason: str = ""
     elapsed: float = 0.0
@@ -106,6 +108,8 @@ class Investigation:
             "steps": self.steps,
             "step_count": len(self.steps),
             "verdict": self.verdict,
+            "grounded_in": self.grounded_in,
+            "ungrounded_citations": self.ungrounded_citations,
             "elapsed_seconds": round(self.elapsed, 1),
             "model_calls": self.model_calls,
             "parse_failures": self.parse_failures,
@@ -194,6 +198,10 @@ class Investigator:
             re-running the tools, so the GPU time already spent is not wasted.
         """
         result = Investigation(incident_id=incident.get("incident_id", "unknown"))
+        # Everything search_knowledge actually returned. A verdict may only
+        # cite from this: the prompt asks for that, but asking is not enforcing,
+        # and an unenforced grounding rule is the honour system.
+        retrieved: list[dict[str, Any]] = list((resume or {}).get("retrieved", []))
         transcript: list[dict[str, Any]] = list((resume or {}).get("transcript", []))
         started = time.time()
         seen_calls: set[str] = set((resume or {}).get("seen_calls", []))
@@ -260,7 +268,22 @@ class Investigator:
                     self._record(result, step, "conclude", {}, thought, nudge)
                     continue
                 if isinstance(verdict, dict) and verdict:
+                    rejection = self._enforce(verdict, retrieved, step, seen_calls)
+                    if rejection:
+                        transcript.append({
+                            "step": step, "tool": "conclude", "args": {},
+                            "observation": rejection, "summary": "conclusion rejected",
+                        })
+                        self._record(result, step, "conclude", {}, thought, rejection)
+                        continue
+
                     result.verdict = verdict
+                    result.grounded_in = [
+                        {"id": c.get("id"), "title": c.get("title", "")}
+                        for c in {c.get("id"): c for c in retrieved}.values()
+                    ]
+                    result.ungrounded_citations = prompts.check_grounding(
+                        verdict, retrieved)
                     result.complete = True
                     result.stopped_reason = "concluded"
                     self._record(result, step, "conclude", {}, thought,
@@ -304,6 +327,7 @@ class Investigator:
                     "why": asked.why,
                     "options": asked.options,
                     "resume_state": {
+                        "retrieved": retrieved,
                         "transcript": transcript,
                         "steps": result.steps,
                         "seen_calls": sorted(seen_calls),
@@ -318,6 +342,13 @@ class Investigator:
                              f"Paused — asked the analyst: {asked.question}")
                 result.elapsed = time.time() - started
                 return result
+
+            # Accumulate what retrieval actually returned. The verdict is
+            # checked against exactly this, so a technique cited without a
+            # matching chunk here is recalled from weights, not evidenced.
+            if name == "search_knowledge" and not call.error:
+                retrieved.extend(call.result.get("results") or [])
+
             observation = call.observation()
             transcript.append({
                 "step": step, "tool": name, "args": args,
@@ -349,6 +380,45 @@ class Investigator:
                 "incomplete": True,
             }
         return result
+
+    def _enforce(self, verdict: dict[str, Any], retrieved: list[dict[str, Any]],
+                 step: int, seen: set[str]) -> str | None:
+        """Check the conclusion against its contract. Returns a rejection, or None.
+
+        The prompt asks the model to cite only retrieved techniques and to
+        produce a fixed shape. Neither was checked in this path — the whole
+        anti-hallucination design lived in the single-shot engine this replaced.
+        Rejections fire once each, so a stubborn model ends the investigation
+        rather than burning the budget arguing.
+        """
+        # 1. Schema.
+        required = {"verdict", "urgency_score", "confidence", "analyst_summary",
+                    "mitre_technique"}
+        missing = required - set(verdict)
+        if missing and "schema_rejection" not in seen:
+            seen.add("schema_rejection")
+            return (f"Your verdict is missing required fields: {sorted(missing)}. "
+                    "Return the full object.")
+
+        # 2. Grounding. A technique cited without retrieval behind it is
+        #    recalled from weights and unverifiable.
+        ungrounded = prompts.check_grounding(verdict, retrieved)
+        if ungrounded and "grounding_rejection" not in seen:
+            seen.add("grounding_rejection")
+            if not retrieved:
+                return (
+                    f"You cited {', '.join(ungrounded)} but never called "
+                    "search_knowledge, so nothing supports it. Either call "
+                    "search_knowledge to retrieve the technique, or set "
+                    'mitre_technique to "UNKNOWN".'
+                )
+            available = sorted({c.get("id", "") for c in retrieved})
+            return (
+                f"You cited {', '.join(ungrounded)}, which did not come back "
+                f"from retrieval. Available: {', '.join(available)}. Cite one "
+                'of those or use "UNKNOWN".'
+            )
+        return None
 
     def _record(self, result: Investigation, step: int, tool: str,
                 args: dict[str, Any], thought: str, observation: str,

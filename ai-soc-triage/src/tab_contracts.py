@@ -201,6 +201,32 @@ TAB_CONTRACTS: dict[str, TabContract] = {
         retrieval_hints=["incident response playbook", "attack mitigations"],
         token_budget=550,
     ),
+    "detection_engineering": TabContract(
+        tab_id="detection_engineering",
+        label="Detection Engineering",
+        scope=SCOPE_CAMPAIGN,
+        analyst_question=(
+            "Which detection rules are earning their noise, and what specific "
+            "change would improve the ones that are not?"
+        ),
+        output_schema={
+            "assessment": "2-3 sentences on the overall state of the rule set",
+            "findings": "array of {\"rule_id\", \"problem\", \"evidence\", "
+                        "\"proposed_change\", \"expected_effect\", \"risk\"} — "
+                        "proposed_change must be a concrete exclusion or threshold, "
+                        "never 'tune this rule'",
+            "coverage_gaps": "array of {\"technique\", \"why_it_matters\", "
+                             "\"detection_idea\"} for techniques the available "
+                             "telemetry could detect but no rule covers",
+            "do_not_change": "array of rule_ids that look noisy but must be left "
+                             "alone, with the reason — a rule whose only evidence "
+                             "is the agent's own suppressions belongs here",
+            **_GROUNDING,
+        },
+        retrieval_hints=["attack technique detection guidance",
+                         "data sources for detection"],
+        token_budget=900,
+    ),
     "reports": TabContract(
         tab_id="reports",
         label="Reports",

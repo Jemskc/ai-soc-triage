@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, AlertTriangle, Search, Crosshair,
-  Monitor, FileText, BookOpen, Settings, Terminal, Mail, Bot, Upload, FileSearch, MessageCircleQuestion,
+  Monitor, FileText, BookOpen, Settings, Terminal, Mail, Bot, Upload, FileSearch, MessageCircleQuestion, Wrench,
 } from 'lucide-react';
 
 export const NAV_ITEMS = [
@@ -15,6 +15,7 @@ export const NAV_ITEMS = [
   { id: 'reports',        icon: FileText,        label: 'Reports' },
   { id: 'playbooks',      icon: BookOpen,        label: 'Playbooks' },
   { id: 'ingest',         icon: Upload,          label: 'Ingest Logs' },
+  { id: 'detection',      icon: Wrench,          label: 'Detection Tuning' },
   { id: 'questions',      icon: MessageCircleQuestion, label: 'Agent Questions' },
   { id: 'audit',          icon: FileSearch,      label: 'Audit Trail' },
   { id: 'settings',       icon: Settings,        label: 'Settings' },
