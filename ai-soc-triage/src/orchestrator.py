@@ -176,6 +176,7 @@ class Orchestrator:
             case.asset_criticality,
             precedent,
             precedent_confirmed_by_human=precedent_confirmed,
+            incident=incident,
         ).to_dict()
 
         # 6. Response, scoped by the risk band.

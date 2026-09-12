@@ -6,8 +6,11 @@ state happens without a person. Everything else is tunable policy; these two
 are not, and a test failing here is a governance failure, not a bug.
 """
 
+from pathlib import Path
+
 import pytest
 
+import autonomy
 from autonomy import Band, Policy, classify_action, decide, gate_actions
 
 
@@ -147,3 +150,65 @@ def test_confirmation_does_not_bypass_the_crown_jewel_rule():
     decision = decide({"risk_score": 5}, {"verdict": "SUPPRESS", "confidence": 0.99},
                       "crown_jewel", "benign", precedent_confirmed_by_human=True)
     assert decision.band is not Band.AUTO_CLOSE
+
+
+# ── the suppression veto ──────────────────────────────────────────────────────
+# Measured on 12 suppressions from a real run: 6 hid genuine attack evidence.
+# The agent's confidence did not separate them — 0.6 appeared on three misses
+# and five correct closures — so the judgement is removed rather than tuned.
+
+_MIMIKATZ_INCIDENT = {
+    "incident_id": "INC-TEST",
+    "rules_fired": [
+        {"rule": "Mimikatz Credential Dumping Behavior", "count": 2},
+        {"rule": "Lateral Movement via PsExec", "count": 1},
+    ],
+    "processes": ["C:\\Windows\\PSEXESVC.exe", "C:\\Windows\\System32\\lsass.exe"],
+}
+
+
+def test_suppression_is_overturned_when_detections_say_hands_on():
+    decision = autonomy.decide(
+        {"risk_score": 20.0},
+        {"verdict": "SUPPRESS", "confidence": 0.95},
+        asset_criticality="standard",
+        similar_case_outcome="benign",
+        precedent_confirmed_by_human=True,
+        incident=_MIMIKATZ_INCIDENT,
+    )
+    # Even at 95% confidence with a human-confirmed precedent — every door to
+    # auto-close open — the case must reach a person.
+    assert decision.band is autonomy.Band.ESCALATE
+    assert decision.requires_approval
+    assert any("overridden" in o for o in decision.overrides)
+
+
+def test_veto_does_not_fire_on_behavioural_only_incidents():
+    # The five misses that carried no runtime signal are indistinguishable from
+    # correct suppressions. The veto must not pretend otherwise by firing on
+    # ordinary behavioural rarity — that would just block every closure.
+    decision = autonomy.decide(
+        {"risk_score": 20.0},
+        {"verdict": "SUPPRESS", "confidence": 0.8},
+        asset_criticality="standard",
+        similar_case_outcome="benign",
+        precedent_confirmed_by_human=True,
+        incident={"rules_fired": [{"rule": "Behavioural: rare lineage"}],
+                  "processes": ["C:\\Windows\\System32\\svchost.exe"]},
+    )
+    assert decision.band is autonomy.Band.AUTO_CLOSE
+
+
+def test_hands_on_evidence_reads_rules_and_processes():
+    found = autonomy.hands_on_evidence(_MIMIKATZ_INCIDENT)
+    assert any("Mimikatz" in f for f in found)
+    assert any("psexesvc.exe" in f for f in found)
+    assert autonomy.hands_on_evidence({}) == []
+    assert autonomy.hands_on_evidence(None) == []
+
+
+def test_veto_uses_only_signals_available_at_inference_time():
+    # Guards against label leakage: the corpus tactic column separates these
+    # cases far better, but it is ground truth and does not exist at runtime.
+    src = (Path(__file__).resolve().parents[1] / "src" / "autonomy.py").read_text()
+    assert "EVTX_Tactic" not in src

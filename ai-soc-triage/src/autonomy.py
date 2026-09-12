@@ -20,6 +20,12 @@ org should not be able to switch them off by editing a threshold:
     controller the cost of a wrong close is not proportional to its likelihood.
   * No action that changes production state is ever taken without a human.
     Proposing containment is the agent's job; performing it is not.
+  * An incident whose detections say hands-on intrusion is never suppressed,
+    whatever the agent concluded. Measured on 12 suppressions, half hid real
+    attack evidence, and the agent's stated confidence did not separate the
+    good calls from the bad — 0.6 appeared on three misses and five correct
+    closures alike. Where a judgement cannot be trusted, it is removed rather
+    than tuned.
 
 Everything else is policy an org owns and tunes.
 """
@@ -87,6 +93,54 @@ class Decision:
 
 # Anything that changes the state of a production system. Always human-gated,
 # regardless of how confident the agent is.
+# Detections that, on their own, mean an adversary already has execution or
+# credentials on the host. These come from the deterministic rule layer, not
+# from the model, and not from any ground-truth label — they are available at
+# the moment the decision is made.
+HANDS_ON_DETECTIONS = (
+    "credential dumping",
+    "mimikatz",
+    "lsass",
+    "lateral movement",
+    "psexec",
+    "pass the hash",
+    "pass-the-hash",
+    "golden ticket",
+    "kerberoast",
+    "dcsync",
+)
+
+# Tooling whose presence is itself the finding.
+HANDS_ON_ARTEFACTS = (
+    "psexesvc.exe", "psexec.exe", "mimikatz.exe", "procdump.exe",
+    "ppldump.exe", "pwdump.exe", "wce.exe", "secretsdump", "lazagne.exe",
+)
+
+
+def hands_on_evidence(incident: dict[str, Any] | None) -> list[str]:
+    """Runtime signals that an intrusion is already underway.
+
+    Deliberately built from fired rules and observed process names only. The
+    corpus tactic labels would separate these cases far better, but they are
+    ground truth and do not exist at inference time; using them would measure
+    a system that cannot be built.
+    """
+    if not incident:
+        return []
+    found: list[str] = []
+    for entry in incident.get("rules_fired") or []:
+        name = str(entry.get("rule") if isinstance(entry, dict) else entry).lower()
+        for needle in HANDS_ON_DETECTIONS:
+            if needle in name:
+                found.append(f"rule fired: {entry.get('rule') if isinstance(entry, dict) else entry}")
+                break
+    for proc in incident.get("processes") or []:
+        base = str(proc).replace("/", "\\").rsplit("\\", 1)[-1].lower()
+        if base in HANDS_ON_ARTEFACTS:
+            found.append(f"process observed: {base}")
+    return sorted(set(found))
+
+
 STATE_CHANGING = (
     "isolate", "quarantine", "disable", "block", "reset", "revoke", "kill",
     "terminate", "delete", "rebuild", "shutdown", "shut down", "remove",
@@ -105,6 +159,7 @@ def decide(
     similar_case_outcome: str | None = None,
     policy: Policy | None = None,
     precedent_confirmed_by_human: bool = False,
+    incident: dict[str, Any] | None = None,
 ) -> Decision:
     """Which band this case falls into, and why.
 
@@ -146,6 +201,20 @@ def decide(
     if band_name in policy.escalate_verdicts and confidence >= 0.8:
         reasons.append(f"agent returned {band_name} at {confidence:.0%} confidence")
         return Decision(Band.ESCALATE, reasons, overrides, True, notify=["soc_lead"])
+
+    # --- the suppression veto --------------------------------------------
+    # Not a blocker among blockers: this overturns the verdict itself. A
+    # suppression here is not merely un-auto-closable, it is wrong, and the
+    # case goes to a human as an escalation rather than sitting closed.
+    hands_on = hands_on_evidence(incident)
+    if band_name == "SUPPRESS" and hands_on:
+        reasons.append(
+            "agent suppressed, but the detections describe hands-on intrusion: "
+            + "; ".join(hands_on)
+        )
+        overrides.append("suppression overridden — hands-on attack evidence present")
+        return Decision(Band.ESCALATE, reasons, overrides, True,
+                        notify=["soc_lead"])
 
     # --- auto-close -------------------------------------------------------
     if band_name == "SUPPRESS":

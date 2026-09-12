@@ -43,6 +43,10 @@ from agent_tools import AskedHuman, ToolBox
 # were forced to UNKNOWN despite having gathered plenty of evidence.
 DEFAULT_MAX_STEPS = 12
 
+# Bumped whenever a change alters what a verdict means, so verdicts produced by
+# different reasoning behaviour are never averaged together.
+CODE_VERSION = "2026.09.12-12step-grounded"
+
 # Steps reserved at the end for reaching a conclusion. Inside this window the
 # tools are withdrawn — telling a model "you are running out of budget" is
 # advice it can ignore, and it did.
@@ -125,6 +129,9 @@ class Investigation:
     elapsed: float = 0.0
     model_calls: int = 0
     parse_failures: int = 0
+    # The step ceiling this run was given. Recorded, not assumed, so a verdict
+    # carries the reasoning budget it actually had.
+    max_steps: int = DEFAULT_MAX_STEPS
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -140,6 +147,15 @@ class Investigation:
             "elapsed_seconds": round(self.elapsed, 1),
             "model_calls": self.model_calls,
             "parse_failures": self.parse_failures,
+            # Provenance. Verdicts persist across restarts and are reloaded by
+            # Autopilot._restore, so a result set can silently span two builds:
+            # 7 verdicts once read "did not reach a conclusion within 8 steps"
+            # while the code said 12, and nothing on the record showed it.
+            # Anything measuring accuracy must be able to reject stale rows.
+            "produced_by": {
+                "max_steps": self.max_steps,
+                "code_version": CODE_VERSION,
+            },
         }
 
 
@@ -238,7 +254,10 @@ class Investigator:
             analyst's answer. Resuming replays the transcript rather than
             re-running the tools, so the GPU time already spent is not wasted.
         """
-        result = Investigation(incident_id=incident.get("incident_id", "unknown"))
+        result = Investigation(
+            incident_id=incident.get("incident_id", "unknown"),
+            max_steps=self.max_steps,
+        )
         # Everything search_knowledge actually returned. A verdict may only
         # cite from this: the prompt asks for that, but asking is not enforcing,
         # and an unenforced grounding rule is the honour system.

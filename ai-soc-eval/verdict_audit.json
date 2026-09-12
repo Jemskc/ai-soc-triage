@@ -1,0 +1,1533 @@
+{
+ "code_version": "2026.09.12-12step-grounded",
+ "audited": 80,
+ "stale_verdicts_present": 80,
+ "verdict_mix": {
+  "ESCALATE": 61,
+  "SUPPRESS": 12,
+  "UNKNOWN": 7
+ },
+ "wrongful_suppression": {
+  "suppressed": 12,
+  "wrongful": 6,
+  "rate": 0.5,
+  "incidents": [
+   "INC-B8ED7AFAB4",
+   "INC-536E43B107",
+   "INC-5283B4541E",
+   "INC-6DAE339AF6",
+   "INC-A334E9B815",
+   "INC-8910D1DA08"
+  ]
+ },
+ "evidence_fidelity": {
+  "verdicts_quoting_checkable_fields": 60,
+  "verdicts_citing_invented_files": 0,
+  "fabrication_rate": 0.0,
+  "verdicts_citing_beyond_their_incident": 6,
+  "note": "A citation absent from the incident's own rows but present in the corpus is the agent's search tools working, not invention. Only the fabrication rate is a defect.",
+  "examples": []
+ },
+ "not_computable": {
+  "precision": "corpus is 100% malicious \u2014 no benign incidents exist",
+  "specificity": "same",
+  "false_positive_rate": "same"
+ },
+ "cases": [
+  {
+   "incident_id": "INC-DBC085CB9C",
+   "verdict": "ESCALATE",
+   "confidence": 0.85,
+   "rows": 13,
+   "tactics": {
+    "persistence": 13
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [
+    "psexesvc.exe"
+   ],
+   "wrongful_suppression": null,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Suspicious processes and lateral movement techniques indicate a potential breach. Unauthorized access and credential dumping are likely."
+  },
+  {
+   "incident_id": "INC-EB004E5709",
+   "verdict": "ESCALATE",
+   "confidence": 0.85,
+   "rows": 19,
+   "tactics": {
+    "execution": 2,
+    "lateral movement": 17
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The Administrator account has logged into an unusual number of hosts, and there are indications of credential dumping and potential lateral movement. This suggests a possible compromise with high risk"
+  },
+  {
+   "incident_id": "INC-F289823B04",
+   "verdict": "ESCALATE",
+   "confidence": 0.85,
+   "rows": 4,
+   "tactics": {
+    "credential access": 4
+   },
+   "hands_on_tactics": [
+    "credential access"
+   ],
+   "decisive_artefacts": [
+    "ppldump.exe"
+   ],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "A credential dumping attempt was detected on MSEDGEWIN10 involving IEUser. This includes suspicious processes and Mimikatz-like behavior, indicating a possible compromise."
+  },
+  {
+   "incident_id": "INC-885721D5F5",
+   "verdict": "ESCALATE",
+   "confidence": 0.85,
+   "rows": 4,
+   "tactics": {
+    "privilege escalation": 4
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 4,
+   "cited_outside_incident": [
+    "cmd.exe",
+    "powershell.exe"
+   ],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "IEUser exhibits anomalous behavior indicative of a potential breach, including Mimikatz credential dumping and unusual process executions. This suggests a malicious actor may be present within the net"
+  },
+  {
+   "incident_id": "INC-E014F09F69",
+   "verdict": "ESCALATE",
+   "confidence": 0.85,
+   "rows": 2,
+   "tactics": {
+    "credential access": 1,
+    "lateral movement": 1
+   },
+   "hands_on_tactics": [
+    "credential access",
+    "lateral movement"
+   ],
+   "decisive_artefacts": [
+    "mimikatz.exe"
+   ],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "IEUser accessed PC04.example.corp, exhibiting Mimikatz behavior indicative of credential dumping. This is unusual for the user, who typically accesses fewer hosts. The criticality of the host is stand"
+  },
+  {
+   "incident_id": "INC-1D4A90E90A",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 16,
+   "tactics": {
+    "discovery": 16
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system detected suspicious activity related to credential dumping via LSASS memory access, indicating potential hands-on-keyboard activity by an adversary."
+  },
+  {
+   "incident_id": "INC-383D3C4F0C",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 4,
+   "tactics": {
+    "privilege escalation": 4
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 3,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The host MSEDGEWIN10 exhibits critical security alerts indicative of credential dumping and rare lineage behaviors, suggesting potential malicious activities such as token manipulation or privilege es"
+  },
+  {
+   "incident_id": "INC-9EC7F75961",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 9,
+   "tactics": {
+    "lateral movement": 9
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The Administrator account on PC01.example.corp is exhibiting behavior consistent with credential dumping using Mimikatz. This is highly indicative of an active attack."
+  },
+  {
+   "incident_id": "INC-1FF60B4E0C",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 3,
+   "tactics": {
+    "privilege escalation": 3
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Administrator account exhibited unusual behavior on 2012r2srv.maincorp.local, including Mimikatz-like credential dumping. This indicates potential compromise requiring immediate attention."
+  },
+  {
+   "incident_id": "INC-30C1B10B93",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 2,
+   "tactics": {
+    "persistence": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "A critical alert was triggered due to suspicious behavior indicative of credential dumping via Mimikatz. The user rarely runs the involved process, suggesting potential malicious activity. Escalation "
+  },
+  {
+   "incident_id": "INC-4C3A7673E1",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 13,
+   "tactics": {
+    "lateral movement": 13
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system MSEDGEWIN10 has triggered multiple alerts related to suspicious LSASS access patterns indicative of credential dumping attempts. This behavior is highly suspicious and could indicate an act"
+  },
+  {
+   "incident_id": "INC-4D2C3A4898",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 12,
+   "tactics": {
+    "persistence": 12
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system detected suspicious LSASS access patterns indicative of credential dumping attempts. This is likely an active attack attempting to steal credentials."
+  },
+  {
+   "incident_id": "INC-D6949892C3",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 9,
+   "tactics": {
+    "persistence": 9
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Administrator account logged into DC1.insecurebank.local, a critical domain controller, which is unusual behavior. This could indicate unauthorized access or lateral movement."
+  },
+  {
+   "incident_id": "INC-C82D402EB8",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 2,
+   "tactics": {
+    "credential access": 2
+   },
+   "hands_on_tactics": [
+    "credential access"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Host IEWIN7 has executed the suspicious process unsecapp.exe multiple times, indicating potential malicious activity. This is flagged as rare lineage and suggests a possible compromise."
+  },
+  {
+   "incident_id": "INC-33591D67A3",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 2,
+   "tactics": {
+    "persistence": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 3,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Unusual process lineage suggests potential malicious activity. Regsvr32.exe and WMIADAP.exe being spawned by svchost.exe could indicate a malware infection or lateral movement attempt. The lack of det"
+  },
+  {
+   "incident_id": "INC-1604AA53AF",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 5,
+   "tactics": {
+    "defense evasion": 5
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [
+    "nc.exe"
+   ],
+   "wrongful_suppression": null,
+   "quoted_tokens": 4,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Unusual process behavior and network activity suggest potential malicious activity on MSEDGEWIN10. Further investigation is required to confirm if this is an APT or other threat actor."
+  },
+  {
+   "incident_id": "INC-9112257DE4",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 4,
+   "tactics": {
+    "privilege escalation": 4
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 5,
+   "cited_outside_incident": [
+    "uacbypass.exe"
+   ],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Unusual parent-child process relationships and rare lineage of processes indicate potential privilege escalation attempts. The presence of UACBypass.exe further supports this hypothesis."
+  },
+  {
+   "incident_id": "INC-9BDF7A7CDF",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 4,
+   "tactics": {
+    "execution": 4
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Unusual process lineage and execution of known living-off-the-land binaries suggest potential malicious activity. Further investigation is required."
+  },
+  {
+   "incident_id": "INC-37670C8D36",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 4,
+   "tactics": {
+    "privilege escalation": 4
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 3,
+   "cited_outside_incident": [
+    "uacbypass.exe"
+   ],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Suspicious parent-child process relationships and the presence of a known malicious process suggest a potential UAC bypass attempt. This could indicate a broader compromise."
+  },
+  {
+   "incident_id": "INC-99B96A13E7",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 4,
+   "tactics": {
+    "privilege escalation": 4
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [
+    "psexesvc.exe"
+   ],
+   "wrongful_suppression": null,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "An unusual process execution and lateral movement via PsExec were detected. This indicates a potential compromise with malicious intent to move laterally within the network."
+  },
+  {
+   "incident_id": "INC-EEDB06092C",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 3,
+   "tactics": {
+    "privilege escalation": 3
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [
+    "uacbypass.exe"
+   ],
+   "wrongful_suppression": null,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Suspicious activity detected involving UACBypass.exe and winSAT.exe, indicating potential privilege escalation attempts. Further investigation is required to determine the extent of compromise."
+  },
+  {
+   "incident_id": "INC-2D9A4AB6BE",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 3,
+   "tactics": {
+    "privilege escalation": 3
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 3,
+   "cited_outside_incident": [
+    "uacbypass.exe"
+   ],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The host MSEDGEWIN10 has shown signs of suspicious activity including the execution of living-off-the-land binaries and a known bypass tool. This indicates potential compromise and requires immediate "
+  },
+  {
+   "incident_id": "INC-E430482FF9",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 3,
+   "tactics": {
+    "credential access": 3
+   },
+   "hands_on_tactics": [
+    "credential access"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The Administrator account logged into an unusually high number of hosts, indicating potential lateral movement. While the specific host does not show signs of compromise, the behavior is concerning."
+  },
+  {
+   "incident_id": "INC-752797496E",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 2,
+   "tactics": {
+    "execution": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Unusual process lineage and command line indicators suggest potential malicious activity. Further analysis or containment is recommended."
+  },
+  {
+   "incident_id": "INC-16D923E1F2",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 2,
+   "tactics": {
+    "credential access": 2
+   },
+   "hands_on_tactics": [
+    "credential access"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 3,
+   "cited_outside_incident": [
+    "uacbypass.exe"
+   ],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Suspicious activity detected on host MSEDGEWIN10 involving living-off-the-land binaries and a UAC bypass attempt. This indicates potential compromise and requires immediate attention."
+  },
+  {
+   "incident_id": "INC-B8ED7AFAB4",
+   "verdict": "SUPPRESS",
+   "confidence": 0.6,
+   "rows": 11,
+   "tactics": {
+    "persistence": 11
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [
+    "psexesvc.exe"
+   ],
+   "wrongful_suppression": true,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The host PC01.example.corp exhibits suspicious behaviors indicative of potential compromise, including rare process lineage and lateral movement attempts. However, without clear evidence of actual dat"
+  },
+  {
+   "incident_id": "INC-5B4790C9CE",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 4,
+   "tactics": {
+    "defense evasion": 4
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [
+    "ppldump.exe"
+   ],
+   "wrongful_suppression": null,
+   "quoted_tokens": 3,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system MSEDGEWIN10 has been flagged for suspicious LSASS memory dumping activity by the user IEUser, which is indicative of credential harvesting attempts."
+  },
+  {
+   "incident_id": "INC-3CD0691660",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 2,
+   "tactics": {
+    "command and control": 2
+   },
+   "hands_on_tactics": [
+    "command and control"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The PC01$ system account on PC01.example.corp has triggered a critical rule indicating potential LSASS credential dumping activity, which is highly indicative of an adversary attempting to steal crede"
+  },
+  {
+   "incident_id": "INC-8AE194AC66",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 1,
+   "tactics": {
+    "privilege escalation": 1
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [
+    "mimikatz.exe"
+   ],
+   "wrongful_suppression": null,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The user IEUser executed mimikatz.exe, a tool known for credential dumping, indicating potential malicious activity aimed at stealing credentials."
+  },
+  {
+   "incident_id": "INC-B12B1B9E9A",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 2,
+   "tactics": {
+    "credential access": 2
+   },
+   "hands_on_tactics": [
+    "credential access"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 4,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The user IEUser on MSEDGEWIN10 triggered a critical rule indicating potential Mimikatz credential dumping behavior, which is highly suspicious and could indicate an active attack."
+  },
+  {
+   "incident_id": "INC-C17A4B4BC7",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 1,
+   "tactics": {
+    "credential access": 1
+   },
+   "hands_on_tactics": [
+    "credential access"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The LSASS process was accessed in a manner consistent with credential dumping, indicating potential compromise. This activity could lead to further unauthorized access within the network."
+  },
+  {
+   "incident_id": "INC-1B3F80A0E7",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 1,
+   "tactics": {
+    "lateral movement": 1
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The LSASS process on the host was accessed in a manner consistent with credential dumping, indicating potential compromise. This is a critical issue as it could lead to further unauthorized access."
+  },
+  {
+   "incident_id": "INC-062DC39BED",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 4,
+   "tactics": {
+    "credential access": 4
+   },
+   "hands_on_tactics": [
+    "credential access"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system detected suspicious LSASS access patterns indicative of credential dumping attempts. This is highly suspicious and could indicate an active attack."
+  },
+  {
+   "incident_id": "INC-A92A508614",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 3,
+   "tactics": {
+    "persistence": 3
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system detected suspicious LSASS access patterns indicative of credential dumping attempts. This is highly suspicious and could indicate an active attack."
+  },
+  {
+   "incident_id": "INC-0CAE708AAB",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 1,
+   "tactics": {
+    "defense evasion": 1
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [
+    "mimikatz.exe"
+   ],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system IEWIN7 has triggered a critical alert due to suspicious LSASS access patterns associated with credential dumping via Mimikatz. This indicates potential hands-on-keyboard activity aimed at s"
+  },
+  {
+   "incident_id": "INC-B65F6F26F2",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 2,
+   "tactics": {
+    "persistence": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system detected suspicious LSASS access patterns associated with credential dumping on LAPTOP-JU4M3I0E, indicating potential credential theft."
+  },
+  {
+   "incident_id": "INC-022416A689",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 2,
+   "tactics": {
+    "lateral movement": 2
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The LSASS process on the host 02694w-win10.threebeesco.com has triggered a critical alert due to suspicious behavior indicative of credential dumping. This activity could lead to further compromise an"
+  },
+  {
+   "incident_id": "INC-7A15437495",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 1,
+   "tactics": {
+    "credential access": 1
+   },
+   "hands_on_tactics": [
+    "credential access"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system detected suspicious activity indicative of credential dumping via LSASS memory access, which is a critical security issue as it could lead to unauthorized access to sensitive information."
+  },
+  {
+   "incident_id": "INC-444948E5D0",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 1,
+   "tactics": {
+    "credential access": 1
+   },
+   "hands_on_tactics": [
+    "credential access"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The LSASS process on MSEDGEWIN10 accessed a sensitive registry key, indicating potential credential dumping activity. This is highly indicative of an adversary attempting to steal credentials."
+  },
+  {
+   "incident_id": "INC-51A585808E",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 1,
+   "tactics": {
+    "persistence": 1
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system detected suspicious activity related to LSASS memory access, which is indicative of credential dumping behavior. This could be a sign of an active attack attempting to steal credentials."
+  },
+  {
+   "incident_id": "INC-3DAE21DEF3",
+   "verdict": "UNKNOWN",
+   "confidence": 0.0,
+   "rows": 7,
+   "tactics": {
+    "persistence": 6,
+    "privilege escalation": 1
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Investigation did not reach a conclusion within 8 steps. Needs an analyst."
+  },
+  {
+   "incident_id": "INC-F0EB15C292",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 3,
+   "tactics": {
+    "execution": 3
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Suspicious PowerShell command execution and rare lineage behavior suggest potential credential dumping activities. Further manual review is required to confirm malicious intent."
+  },
+  {
+   "incident_id": "INC-E6989A864F",
+   "verdict": "ESCALATE",
+   "confidence": 0.7,
+   "rows": 2,
+   "tactics": {
+    "lateral movement": 2
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "High-severity alerts on IEWIN7 due to suspicious PowerShell commands and rare process lineage suggest potential malicious activity. However, no anomalous logon activity was observed for the user accou"
+  },
+  {
+   "incident_id": "INC-0D1F82F81A",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 4,
+   "tactics": {
+    "lateral movement": 4
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system is executing suspicious encoded PowerShell commands, indicating potential malicious activity. The commands are likely part of a lateral movement attempt."
+  },
+  {
+   "incident_id": "INC-70924EC027",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 1,
+   "tactics": {
+    "execution": 1
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 4,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The user IEWIN7\\IEUser executed regsvr32.exe with suspicious parameters, likely to download and execute malicious code. This is indicative of an adversary using system binary proxy execution to evade "
+  },
+  {
+   "incident_id": "INC-E65D40426C",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 3,
+   "tactics": {
+    "defense evasion": 3
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [
+    "psexec.exe"
+   ],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system MSEDGEWIN10 has triggered alerts for lateral movement using PsExec, which is indicative of an attacker attempting to move laterally within the network."
+  },
+  {
+   "incident_id": "INC-36E649883A",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 2,
+   "tactics": {
+    "persistence": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system has detected suspicious activity related to the installation of a service named PSEXESVC, which is indicative of lateral movement using PsExec. This is a significant security concern as it "
+  },
+  {
+   "incident_id": "INC-536E43B107",
+   "verdict": "SUPPRESS",
+   "confidence": 0.6,
+   "rows": 2,
+   "tactics": {
+    "lateral movement": 2
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": true,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Unusual process execution by IIS APPPOOL\\DefaultAppPool and network activity towards administrative shares suggest potential lateral movement or reconnaissance. However, no clear malicious activity wa"
+  },
+  {
+   "incident_id": "INC-5283B4541E",
+   "verdict": "SUPPRESS",
+   "confidence": 0.6,
+   "rows": 4,
+   "tactics": {
+    "privilege escalation": 4
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": true,
+   "quoted_tokens": 3,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Unusual process lineage observed, but no clear signs of data exfiltration or lateral movement. User behavior is within normal baseline."
+  },
+  {
+   "incident_id": "INC-291555F9FB",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 1,
+   "tactics": {
+    "credential access": 1
+   },
+   "hands_on_tactics": [
+    "credential access"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "A suspicious encoded PowerShell command was detected running under the DefaultAppPool user, indicating potential malicious activity. The encoded command suggests an attempt to evade detection."
+  },
+  {
+   "incident_id": "INC-C9BC208DF1",
+   "verdict": "UNKNOWN",
+   "confidence": 0.0,
+   "rows": 2,
+   "tactics": {
+    "defense evasion": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [
+    "nc.exe"
+   ],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Investigation did not reach a conclusion within 8 steps. Needs an analyst."
+  },
+  {
+   "incident_id": "INC-52FC96A89C",
+   "verdict": "SUPPRESS",
+   "confidence": 0.6,
+   "rows": 3,
+   "tactics": {
+    "defense evasion": 3
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": false,
+   "quoted_tokens": 3,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Administrator was observed on an unusual host with rare lineage events involving WerFault.exe. While this could suggest malicious activity, the lack of clear indicators of compromise (IoCs) and the st"
+  },
+  {
+   "incident_id": "INC-65EA4A251F",
+   "verdict": "ESCALATE",
+   "confidence": 0.85,
+   "rows": 2,
+   "tactics": {
+    "defense evasion": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 5,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The user IEUser on PC04.example.corp ran icacls.exe commands to grant full permissions to termsrv.dll, which is suspicious behavior indicative of potential RDP settings tampering or privilege escalati"
+  },
+  {
+   "incident_id": "INC-6D32B40DA3",
+   "verdict": "SUPPRESS",
+   "confidence": 0.6,
+   "rows": 2,
+   "tactics": {
+    "execution": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": false,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Unusual process behavior observed, but no clear signs of compromise or exfiltration. The host's role and criticality are unknown, reducing immediate concern."
+  },
+  {
+   "incident_id": "INC-017299848F",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 4,
+   "tactics": {
+    "execution": 4
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The SYSTEM user is executing WMIC commands that could be indicative of VSS (Volume Shadow Copy) abuse for persistence. This activity is suspicious and requires immediate investigation."
+  },
+  {
+   "incident_id": "INC-88EAFA64DA",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 2,
+   "tactics": {
+    "defense evasion": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "A new local admin account was created on the host, which could indicate an adversary establishing persistence. This is suspicious due to the high severity rule triggered and the nature of the event."
+  },
+  {
+   "incident_id": "INC-33718CF74F",
+   "verdict": "UNKNOWN",
+   "confidence": 0.0,
+   "rows": 3,
+   "tactics": {
+    "credential access": 3
+   },
+   "hands_on_tactics": [
+    "credential access"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Investigation did not reach a conclusion within 8 steps. Needs an analyst."
+  },
+  {
+   "incident_id": "INC-068F88B267",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 2,
+   "tactics": {
+    "execution": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system is showing unusual activity with msiexec.exe running twice within a short period, which could indicate an adversary using this tool to proxy execution of malicious payloads."
+  },
+  {
+   "incident_id": "INC-102A0F1B2E",
+   "verdict": "UNKNOWN",
+   "confidence": 0.0,
+   "rows": 2,
+   "tactics": {
+    "privilege escalation": 2
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Investigation did not reach a conclusion within 8 steps. Needs an analyst."
+  },
+  {
+   "incident_id": "INC-2E3DB481F3",
+   "verdict": "UNKNOWN",
+   "confidence": 0.0,
+   "rows": 2,
+   "tactics": {
+    "defense evasion": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Investigation did not reach a conclusion within 8 steps. Needs an analyst."
+  },
+  {
+   "incident_id": "INC-F4C011AB51",
+   "verdict": "SUPPRESS",
+   "confidence": 0.6,
+   "rows": 3,
+   "tactics": {
+    "execution": 3
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": false,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Unusual process activity observed but no clear indicators of compromise or network exfiltration. The host is of standard criticality and no anomalous logins were detected."
+  },
+  {
+   "incident_id": "INC-5202C0C273",
+   "verdict": "SUPPRESS",
+   "confidence": 0.6,
+   "rows": 3,
+   "tactics": {
+    "discovery": 3
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": false,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [
+    "uacbypass.exe"
+   ],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Unusual activity observed with user IEUser and process 'net1.exe', potentially indicating privilege escalation attempts. However, conclusive evidence of a breach is lacking."
+  },
+  {
+   "incident_id": "INC-25A8F411F0",
+   "verdict": "UNKNOWN",
+   "confidence": 0.0,
+   "rows": 1,
+   "tactics": {
+    "execution": 1
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Investigation did not reach a conclusion within 8 steps. Needs an analyst."
+  },
+  {
+   "incident_id": "INC-0D44150F52",
+   "verdict": "UNKNOWN",
+   "confidence": 0.0,
+   "rows": 1,
+   "tactics": {
+    "privilege escalation": 1
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Investigation did not reach a conclusion within 8 steps. Needs an analyst."
+  },
+  {
+   "incident_id": "INC-B3112F43FC",
+   "verdict": "ESCALATE",
+   "confidence": 0.9,
+   "rows": 1,
+   "tactics": {
+    "lateral movement": 1
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [
+    "psexesvc.exe"
+   ],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system detected PsExec service installation, which is indicative of lateral movement via remote services. This is a high-severity event suggesting potential adversary activity."
+  },
+  {
+   "incident_id": "INC-EC8E758665",
+   "verdict": "SUPPRESS",
+   "confidence": 0.7,
+   "rows": 2,
+   "tactics": {
+    "persistence": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": false,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The user IEWIN7\\IEUser ran the process evil.exe twice, which is unusual for them but there is no additional context indicating malicious behavior. The network and endpoint activities do not show any s"
+  },
+  {
+   "incident_id": "INC-6DAE339AF6",
+   "verdict": "SUPPRESS",
+   "confidence": 0.7,
+   "rows": 2,
+   "tactics": {
+    "privilege escalation": 2
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": true,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The user IEWIN7\\IEUser has run the mcx2prov.exe process twice in the last 24 hours, which is unusual for them. However, there was no network activity and no other signs of malicious behavior. The proc"
+  },
+  {
+   "incident_id": "INC-A334E9B815",
+   "verdict": "SUPPRESS",
+   "confidence": 0.2,
+   "rows": 1,
+   "tactics": {
+    "lateral movement": 1
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": true,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "Administrator logged onto a standard criticality host, which is unusual but not necessarily indicative of malicious activity. No other suspicious behavior was observed."
+  },
+  {
+   "incident_id": "INC-4AE43BBDA6",
+   "verdict": "ESCALATE",
+   "confidence": 0.85,
+   "rows": 2,
+   "tactics": {
+    "execution": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "A suspicious VBScript execution was detected on IEWIN7 by user IEUser, which could indicate an attempt to execute malicious code. This is concerning due to the unusual command line and network activit"
+  },
+  {
+   "incident_id": "INC-3120C5B270",
+   "verdict": "ESCALATE",
+   "confidence": 0.85,
+   "rows": 2,
+   "tactics": {
+    "lateral movement": 2
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 6,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The user IEUser on MSEDGEWIN10 is executing rundll32.exe with unusual command lines, potentially indicating an adversary using system binary proxy execution for lateral movement."
+  },
+  {
+   "incident_id": "INC-21BEB92A34",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 3,
+   "tactics": {
+    "privilege escalation": 3
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The user IEUser on host IEWIN7 is creating and running scheduled tasks via schtasks.exe, which could indicate privilege escalation attempts."
+  },
+  {
+   "incident_id": "INC-BE6FED405D",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 2,
+   "tactics": {
+    "privilege escalation": 2
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 4,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The wusa.exe process running under IEUser shows unusual parentage from UACME.exe, indicating potential privilege escalation activity. This could be an attempt to bypass User Account Control (UAC)."
+  },
+  {
+   "incident_id": "INC-65BD0C0E09",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 2,
+   "tactics": {
+    "privilege escalation": 2
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 4,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The WSReset.exe process running under IEUser shows unusual parentage from UACME.exe, indicating potential privilege escalation activity."
+  },
+  {
+   "incident_id": "INC-68EBA65D24",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 2,
+   "tactics": {
+    "privilege escalation": 2
+   },
+   "hands_on_tactics": [
+    "privilege escalation"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 4,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The user IEUser on IEWIN7 is suspected of using makecab.exe to bypass UAC and escalate privileges, which is a common tactic for attackers to gain higher permissions on a system."
+  },
+  {
+   "incident_id": "INC-FF0C755A6B",
+   "verdict": "ESCALATE",
+   "confidence": 0.8,
+   "rows": 2,
+   "tactics": {
+    "lateral movement": 2
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "User01 is using WMIC.exe to target the administrator account on PC01.example.corp, which could indicate lateral movement attempts. This activity is suspicious and requires immediate investigation."
+  },
+  {
+   "incident_id": "INC-4477112D97",
+   "verdict": "ESCALATE",
+   "confidence": 0.85,
+   "rows": 2,
+   "tactics": {
+    "lateral movement": 2
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The system detected suspicious registry modifications that could indicate an adversary attempting to establish persistence. The modifications involve adding entries to the Run key, which can be used t"
+  },
+  {
+   "incident_id": "INC-B0E0F81F33",
+   "verdict": "ESCALATE",
+   "confidence": 0.85,
+   "rows": 1,
+   "tactics": {
+    "persistence": 1
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "A suspicious registry modification was detected on MSEDGEWIN10, indicating potential malicious activity aimed at achieving persistence."
+  },
+  {
+   "incident_id": "INC-FAA003126F",
+   "verdict": "ESCALATE",
+   "confidence": 0.85,
+   "rows": 1,
+   "tactics": {
+    "lateral movement": 1
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": null,
+   "quoted_tokens": 2,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "A suspicious registry modification was detected that could enable persistence or privilege escalation. The modification involves adding an entry to the HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\R"
+  },
+  {
+   "incident_id": "INC-A52B6A16FB",
+   "verdict": "SUPPRESS",
+   "confidence": 0.6,
+   "rows": 2,
+   "tactics": {
+    "defense evasion": 2
+   },
+   "hands_on_tactics": [],
+   "decisive_artefacts": [],
+   "wrongful_suppression": false,
+   "quoted_tokens": 1,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The alert indicates WerFault.exe running under NT AUTHORITY\\LOCAL SERVICE, but this is likely benign system behavior rather than malicious activity."
+  },
+  {
+   "incident_id": "INC-8910D1DA08",
+   "verdict": "SUPPRESS",
+   "confidence": 0.3,
+   "rows": 1,
+   "tactics": {
+    "lateral movement": 1
+   },
+   "hands_on_tactics": [
+    "lateral movement"
+   ],
+   "decisive_artefacts": [],
+   "wrongful_suppression": true,
+   "quoted_tokens": 0,
+   "cited_outside_incident": [],
+   "fabricated_tokens": [],
+   "produced_by": null,
+   "summary": "The alert indicates a PowerShell process running with suspicious command line arguments, but the provided evidence does not strongly suggest malicious activity."
+  }
+ ]
+}

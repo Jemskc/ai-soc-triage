@@ -212,30 +212,38 @@ class Confusion:
     tn: int = 0
     fn: int = 0
 
-    @property
-    def precision(self) -> float:
-        return self.tp / (self.tp + self.fp) if (self.tp + self.fp) else 0.0
+    # A metric with no denominator is undefined, not zero. Reporting 0.0 for
+    # "the model made no positive predictions" reads as "the model was wrong
+    # every time", which is a different and much worse claim than the truth.
 
     @property
-    def recall(self) -> float:
-        return self.tp / (self.tp + self.fn) if (self.tp + self.fn) else 0.0
+    def precision(self) -> float | None:
+        return self.tp / (self.tp + self.fp) if (self.tp + self.fp) else None
 
     @property
-    def f1(self) -> float:
+    def recall(self) -> float | None:
+        return self.tp / (self.tp + self.fn) if (self.tp + self.fn) else None
+
+    @property
+    def f1(self) -> float | None:
         p, r = self.precision, self.recall
-        return 2 * p * r / (p + r) if (p + r) else 0.0
+        if p is None or r is None or (p + r) == 0:
+            return None
+        return 2 * p * r / (p + r)
 
     @property
-    def fpr(self) -> float:
-        return self.fp / (self.fp + self.tn) if (self.fp + self.tn) else 0.0
+    def fpr(self) -> float | None:
+        return self.fp / (self.fp + self.tn) if (self.fp + self.tn) else None
 
     def to_dict(self) -> dict[str, Any]:
+        def _r(v, places):
+            return None if v is None else round(v, places)
         return {
             "tp": self.tp, "fp": self.fp, "tn": self.tn, "fn": self.fn,
-            "precision": round(self.precision, 4),
-            "recall": round(self.recall, 4),
-            "f1": round(self.f1, 4),
-            "false_positive_rate": round(self.fpr, 6),
+            "precision": _r(self.precision, 4),
+            "recall": _r(self.recall, 4),
+            "f1": _r(self.f1, 4),
+            "false_positive_rate": _r(self.fpr, 6),
         }
 
 
@@ -252,15 +260,17 @@ def base_rate_correct(cm: Confusion, sampling_fraction: float) -> dict[str, Any]
 
     scale = 1.0 / sampling_fraction
     projected_fp = cm.fp * scale
-    precision = cm.tp / (cm.tp + projected_fp) if (cm.tp + projected_fp) else 0.0
+    precision = cm.tp / (cm.tp + projected_fp) if (cm.tp + projected_fp) else None
     recall = cm.recall
+    f1 = None
+    if precision is not None and recall is not None and (precision + recall):
+        f1 = round(2 * precision * recall / (precision + recall), 6)
     return {
         "available": True,
         "scale_factor": round(scale, 1),
         "projected_false_positives": int(projected_fp),
-        "precision": round(precision, 6),
-        "f1": round(2 * precision * recall / (precision + recall), 6)
-        if (precision + recall) else 0.0,
+        "precision": None if precision is None else round(precision, 6),
+        "f1": f1,
         "note": (
             "Precision corrected to the corpus base rate. The sample figure is "
             "optimistic by roughly the sampling factor and should never be "
@@ -348,18 +358,45 @@ def evaluate(events: list[dict[str, Any]], stats: dict[str, Any],
 
     triage = Confusion()
     confidences: list[tuple[float, int]] = []
-    ungrounded = 0
+    # Grounding is measured over CITATIONS, not over cases. Counting cases
+    # makes the metric pass trivially: an agent that cites nothing at all has
+    # zero ungrounded citations and scores a perfect 100%.
+    citations_total = 0
+    citations_ungrounded = 0
+    model_calls = 0
+    parse_failures = 0
+    # A parked case is an abstention, not a prediction. The agent asked a human
+    # and stopped; scoring that as "did not escalate" credits or penalises it
+    # for an answer it explicitly declined to give.
+    abstained = 0
+    abstained_attacks = 0
     started = time.time()
 
     for i, incident in enumerate(outcome.selected, 1):
         print(f"  [ai] case {i}/{len(outcome.selected)}", flush=True)
         case = orchestrator.run_case(incident)
         payload = case.agent_payload("triage") or {}
+        inv = case.investigation or {}
 
         member_rows = set(incident.get("member_row_indices", [])) | {
             a.get("_row_index") for a in incident.get("sample_alerts", [])
         }
         is_attack = bool(member_rows & red_rows)
+
+        # Read the agentic path's own counters. engine.stats stays at zero for
+        # a parked case, because run_case returns before it increments them.
+        model_calls += int(inv.get("model_calls") or 0)
+        parse_failures += int(inv.get("parse_failures") or 0)
+        cited = list(inv.get("grounded_in") or [])
+        unc = list(inv.get("ungrounded_citations") or [])
+        citations_total += len(cited) + len(unc)
+        citations_ungrounded += len(unc)
+
+        if inv.get("awaiting_human"):
+            abstained += 1
+            abstained_attacks += int(is_attack)
+            continue
+
         escalated = str(payload.get("verdict", "")).upper() == "ESCALATE"
 
         if is_attack and escalated:
@@ -379,16 +416,30 @@ def evaluate(events: list[dict[str, Any]], stats: dict[str, Any],
                 pass
         for agent in case.agent_results.values():
             if agent.ungrounded:
-                ungrounded += 1
+                citations_ungrounded += 1
+                citations_total += 1
 
     elapsed = time.time() - started
-    calls = engine.stats.calls or 1
+    decided = len(outcome.selected) - abstained
     result["layer2_ai"] = {
         "cases_analysed": len(outcome.selected),
+        "cases_decided": decided,
+        # Surfaced rather than folded away: an agent that parks most of its
+        # queue is not triaging, whatever its accuracy on the remainder.
+        "cases_abstained": abstained,
+        "cases_abstained_that_were_attacks": abstained_attacks,
+        "abstention_rate": round(abstained / len(outcome.selected), 4)
+        if outcome.selected else None,
         "verdict_quality": triage.to_dict(),
         "engine": engine.stats.as_dict(),
-        "parse_failure_rate": round(engine.stats.parse_failures / calls, 4),
-        "grounding_rate": round(1 - ungrounded / max(1, len(outcome.selected)), 4),
+        "model_calls": model_calls,
+        "parse_failures": parse_failures,
+        "parse_failure_rate": round(parse_failures / model_calls, 4)
+        if model_calls else None,
+        "citations_total": citations_total,
+        "citations_ungrounded": citations_ungrounded,
+        "grounding_rate": round(1 - citations_ungrounded / citations_total, 4)
+        if citations_total else None,
         "calibration": _calibration(confidences),
         "seconds_per_case": round(elapsed / max(1, len(outcome.selected)), 1),
     }
@@ -413,31 +464,56 @@ def _calibration(points: list[tuple[float, int]], bins: int = 5) -> dict[str, An
     return {"available": True, "brier_score": round(brier, 4), "bins": out}
 
 
+def _pct(v: float | None) -> str:
+    """Undefined metrics print as n/a. A metric with no denominator must never
+    render as 0.0% — that reads as a measured failure rather than an absence."""
+    return "n/a" if v is None else f"{v:.1%}"
+
+
 def apply_gates(result: dict[str, Any]) -> dict[str, Any]:
     """Score against the bars declared at the top of this file."""
     d = result["layer1_detection"]
     ai = result.get("layer2_ai", {})
+    # A gate with no measurement behind it is UNDECIDED, never a pass. The
+    # earlier version defaulted grounding_rate to a computed 1.0 when the agent
+    # had cited nothing, so the anti-hallucination gate reported PASS on zero
+    # evidence — the most misleading result this harness could produce.
+    ai_ran = bool(ai) and not ai.get("skipped")
     measured = {
         "recall": d["sample"]["recall"],
-        "base_rate_precision": (d["base_rate_corrected"] or {}).get("precision", 0.0),
+        "base_rate_precision": (d["base_rate_corrected"] or {}).get("precision"),
         "false_positives_per_day": d["operational"]["false_positives_per_day"],
-        "grounding_rate": ai.get("grounding_rate", 0.0) if not ai.get("skipped") else None,
-        "parse_failure_rate": ai.get("parse_failure_rate", 1.0) if not ai.get("skipped") else None,
+        "grounding_rate": ai.get("grounding_rate") if ai_ran else None,
+        "parse_failure_rate": ai.get("parse_failure_rate") if ai_ran else None,
     }
+    why_missing = {
+        "grounding_rate": "no citations were made, so grounding is unmeasured"
+        if ai_ran else "AI layer not run",
+        "parse_failure_rate": "no model calls were made, so parsing is unmeasured"
+        if ai_ran else "AI layer not run",
+    }
+    lower_is_better = ("false_positives_per_day", "parse_failure_rate")
     checks = {}
     for name, bar in GATES.items():
         got = measured.get(name)
         if got is None:
-            checks[name] = {"bar": bar, "measured": None, "passed": None,
-                            "why": "AI layer not run"}
+            checks[name] = {
+                "bar": bar, "measured": None, "passed": None,
+                "why": why_missing.get(name, "not measured"),
+            }
             continue
-        passed = got <= bar if name in ("false_positives_per_day", "parse_failure_rate") \
-            else got >= bar
+        passed = got <= bar if name in lower_is_better else got >= bar
         checks[name] = {"bar": bar, "measured": got, "passed": bool(passed)}
+
+    undecided = [n for n, c in checks.items() if c["passed"] is None]
     decided = [c for c in checks.values() if c["passed"] is not None]
     return {
         "checks": checks,
-        "passed": all(c["passed"] for c in decided) if decided else False,
+        "undecided": undecided,
+        # Every gate must be both measured and passed. An overall PASS while a
+        # pre-registered gate went unmeasured is a claim the run cannot support.
+        "passed": bool(decided) and not undecided
+        and all(c["passed"] for c in decided),
         "note": "Bars are pre-registered in GATES and were fixed before any run.",
     }
 
@@ -515,24 +591,42 @@ def main() -> int:
     print("\n" + "=" * 70)
     print(f"  events            {stats['auth_events_total']:,} "
           f"({stats['malicious_total']} red-team, base rate {stats['true_base_rate']:.2e})")
-    print(f"  DETECTION  recall {d['sample']['recall']:.1%}  "
-          f"sample precision {d['sample']['precision']:.1%}")
+    print(f"  DETECTION  recall {_pct(d['sample']['recall'])}  "
+          f"sample precision {_pct(d['sample']['precision'])}")
     brc = d["base_rate_corrected"]
     if brc.get("available"):
-        print(f"             base-rate precision {brc['precision']:.4%}  "
+        bp = brc["precision"]
+        print(f"             base-rate precision "
+              f"{'n/a' if bp is None else f'{bp:.4%}'}  "
               f"(sample figure is {brc['scale_factor']:.0f}x optimistic)")
     print(f"             {d['operational']['false_positives_per_day']:.0f} false "
           f"positives/day, {d['operational']['analyst_hours_per_day_at_8min']:.1f} analyst-hours/day")
     ai = result.get("layer2_ai", {})
     if not ai.get("skipped"):
         v = ai["verdict_quality"]
-        print(f"  AI TRIAGE  P {v['precision']:.1%}  R {v['recall']:.1%}  F1 {v['f1']:.1%}"
-              f"   grounding {ai['grounding_rate']:.1%}  {ai['seconds_per_case']}s/case")
+        print(f"  AI TRIAGE  P {_pct(v['precision'])}  R {_pct(v['recall'])}  "
+              f"F1 {_pct(v['f1'])}   grounding {_pct(ai['grounding_rate'])}  "
+              f"{ai['seconds_per_case']}s/case")
+        print(f"             {ai['cases_decided']} decided, "
+              f"{ai['cases_abstained']} parked for a human "
+              f"({ai['cases_abstained_that_were_attacks']} of them real attacks)")
+        print(f"             {ai['model_calls']} model calls, "
+              f"{ai['citations_total']} citations "
+              f"({ai['citations_ungrounded']} ungrounded)")
     print("\n  GATES")
     for name, c in result["gates"]["checks"].items():
-        mark = "  ?  " if c["passed"] is None else (" PASS" if c["passed"] else " FAIL")
-        print(f"   {mark}  {name:26s} bar {c['bar']:<8} measured {c['measured']}")
-    print(f"\n  OVERALL: {'PASS' if result['gates']['passed'] else 'FAIL'}")
+        mark = " ----" if c["passed"] is None else (" PASS" if c["passed"] else " FAIL")
+        why = f"  ({c['why']})" if c.get("why") else ""
+        print(f"   {mark}  {name:26s} bar {c['bar']:<8} "
+              f"measured {c['measured'] if c['measured'] is not None else 'n/a'}{why}")
+    g = result["gates"]
+    if g["passed"]:
+        verdict = "PASS"
+    elif g.get("undecided"):
+        verdict = f"INCOMPLETE — {len(g['undecided'])} gate(s) unmeasured"
+    else:
+        verdict = "FAIL"
+    print(f"\n  OVERALL: {verdict}")
     print(f"\n[+] full results -> {args.out}")
     return 0
 

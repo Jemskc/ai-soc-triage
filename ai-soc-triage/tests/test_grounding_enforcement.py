@@ -204,3 +204,30 @@ def test_orchestrator_gives_the_agent_enough_steps():
 
     source = inspect.getsource(Orchestrator.run_case)
     assert "max_steps=12" in source, "orchestrator must not re-impose a tight budget"
+
+
+# ── verdict provenance ────────────────────────────────────────────────────────
+# Verdicts survive restarts via Autopilot._restore, so a result set can span two
+# builds without anything on the record saying so. That actually happened: 7
+# verdicts read "within 8 steps" while the code said 12, and they were being
+# reported as current behaviour.
+
+def test_verdict_records_the_build_that_produced_it():
+    from investigator import CODE_VERSION, Investigation
+
+    result = Investigation(incident_id="INC-1", max_steps=12)
+    payload = result.to_dict()
+    assert payload["produced_by"]["code_version"] == CODE_VERSION
+    assert payload["produced_by"]["max_steps"] == 12
+
+
+def test_provenance_lets_a_stale_verdict_be_rejected():
+    from investigator import CODE_VERSION, Investigation
+
+    fresh = Investigation(incident_id="INC-1", max_steps=12)
+    stale = {"produced_by": {"code_version": "2026.09.12-8step", "max_steps": 8}}
+
+    rows = [fresh.to_dict(), stale]
+    current = [r for r in rows
+               if (r.get("produced_by") or {}).get("code_version") == CODE_VERSION]
+    assert len(current) == 1
