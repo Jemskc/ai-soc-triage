@@ -146,3 +146,61 @@ def test_grounding_is_reported_on_the_result():
     agent, _ = build([search, conclude("T1003.001 - LSASS Memory")], kb=FakeKB())
     payload = agent.run(INCIDENT).to_dict()
     assert "grounded_in" in payload and "ungrounded_citations" in payload
+
+
+# --- step budget ------------------------------------------------------------
+# Measured failure: 8 tools against an 8-step budget meant a thorough agent
+# spent every step gathering and had none left to conclude. 28 of 40 real
+# investigations hit the cap and were forced to UNKNOWN despite having gathered
+# ample evidence — the product looked broken because of an arithmetic mistake
+# in the budget, not because the model was weak.
+
+def test_budget_exceeds_the_number_of_tools():
+    """A thorough agent must be able to use every tool and still conclude."""
+    from agent_tools import ToolBox
+    from investigator import CONCLUDE_RESERVE, DEFAULT_MAX_STEPS
+
+    tool_count = len(ToolBox(None, None).names())
+    assert DEFAULT_MAX_STEPS - CONCLUDE_RESERVE >= tool_count, (
+        f"{DEFAULT_MAX_STEPS} steps minus {CONCLUDE_RESERVE} reserved leaves "
+        f"fewer than the {tool_count} available tools"
+    )
+
+
+def test_tools_are_withdrawn_in_the_reserve_window():
+    """Telling a model it is low on budget is advice it can ignore, and did.
+    Removing the tool list is what actually forces a conclusion."""
+    from agent_tools import ToolBox
+    from investigator import Investigator
+
+    agent = Investigator(ScriptedBackend([]), ToolBox(None, None), max_steps=6)
+    normal = agent._system(must_conclude=False)
+    forced = agent._system(must_conclude=True)
+    assert "query_identity" in normal
+    assert "query_identity" not in forced
+    assert "conclude" in forced.lower()
+
+
+def test_a_tool_call_in_the_reserve_window_is_refused():
+    from agent_tools import ToolBox
+    from investigator import Investigator
+
+    tool_call = json.dumps({"thought": "one more", "action": "query_identity",
+                            "args": {"user": "u"}})
+    responses = [ASSET_STEP] + [tool_call] * 8 + [conclude("UNKNOWN")]
+    agent = Investigator(ScriptedBackend(responses),
+                         ToolBox(None, None, allow_ask_human=False,
+                                 assets=FakeInventory()),
+                         max_steps=6)
+    result = agent.run(INCIDENT)
+    assert any("No tools remain" in str(s.get("observation", ""))
+               for s in result.steps)
+
+
+def test_orchestrator_gives_the_agent_enough_steps():
+    import inspect
+
+    from orchestrator import Orchestrator
+
+    source = inspect.getsource(Orchestrator.run_case)
+    assert "max_steps=12" in source, "orchestrator must not re-impose a tight budget"

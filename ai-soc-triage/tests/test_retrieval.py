@@ -7,6 +7,7 @@ nothing rather than noise.
 
 import pytest
 
+import correlator
 from knowledge_base import KnowledgeBase, tokenize
 
 
@@ -87,3 +88,35 @@ def test_scores_are_comparable_across_queries(kb):
     hits = kb.search("credential dumping lsass memory", top_k=3)
     assert all("lexical" in h for h in hits)
     assert hits[0]["lexical"] > 0
+
+
+# ── command-line retrieval terms ──────────────────────────────────────────────
+# The command line is where the LOLBAS signal lives. Before this, /enrich/event
+# sent a fixed query string to the knowledge base, so `rundll32.exe
+# advpack.dll,RegisterOCX` retrieved five unrelated Windows event chunks and the
+# model — correctly — said it had nothing to go on.
+
+def test_commandline_terms_surface_lolbas_tokens():
+    terms = correlator.commandline_terms(
+        r"rundll32.exe advpack.dll,RegisterOCX payload.dll")
+    assert "rundll32.exe" in terms
+    assert "advpack.dll" in terms
+    assert "registerocx" in terms
+
+
+def test_commandline_terms_strip_path_noise():
+    terms = correlator.commandline_terms(r'"C:\Windows\System32\cmd.exe" /c whoami')
+    assert "whoami" in terms
+    # Path scaffolding carries no retrieval signal and would crowd out the rest.
+    assert "windows" not in terms and "system32" not in terms
+
+
+def test_commandline_terms_empty_input_yields_nothing():
+    # The caller falls back to the contract hint; it must not get [''] instead.
+    assert correlator.commandline_terms("") == []
+
+
+def test_commandline_terms_are_bounded_and_unique():
+    terms = correlator.commandline_terms(" ".join(f"tok{i}.exe" for i in range(30)))
+    assert len(terms) <= 6
+    assert len(terms) == len(set(terms))

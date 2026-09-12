@@ -1,4 +1,4 @@
-import { API_BASE as apiBase } from '../utils/api';
+import { API_BASE as apiBase, api } from '../utils/api';
 import { useState, useRef, useEffect } from 'react';
 import {
   Upload, FileText, Loader, AlertTriangle, CheckCircle, Minus,
@@ -80,21 +80,34 @@ function EmailDetailPanel({ email, onStatusChange, onSendToAI, onSearchLogs }) {
   const [bodyMode, setBodyMode] = useState('text');
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
 
-  // Fetch real AI analysis when AI tab is opened or email changes
+  // Goes through the email contract: declared schema, retrieval over the
+  // ATT&CK/phishing corpus, and the grounding check. The old /email-analyze
+  // path had none of those — it returned prose that could name any technique
+  // it liked with nothing to verify it against.
   useEffect(() => {
     if (tab !== 'ai') return;
+    let cancelled = false;
     setAiAnalysis(null);
+    setAiError('');
     setAiLoading(true);
-    fetch(`${API_BASE}/email-analyze`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
+    api.enrichEmail({
+      subject: email.subject, from: email.from, to: email.to,
+      spf: email.spf, dkim: email.dkim, dmarc: email.dmarc,
+      replyTo: email.replyTo,
+      urls: (email.urls || []).map(u => (typeof u === 'string' ? u : u.url)),
+      attachments: (email.attachments || []).map(a => (typeof a === 'string' ? a : a.filename)),
+      body: email.bodyText || email.body || '',
     })
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(data => setAiAnalysis(data.analysis || null))
-      .catch(() => setAiAnalysis(null))
-      .finally(() => setAiLoading(false));
+      .then(res => {
+        if (cancelled) return;
+        if (res.ok && res.payload) setAiAnalysis(res);
+        else setAiError(res.error || 'the model did not return a valid assessment');
+      })
+      .catch(err => { if (!cancelled) setAiError(String(err.message || err)); })
+      .finally(() => { if (!cancelled) setAiLoading(false); });
+    return () => { cancelled = true; };
   }, [tab, email.id]);
 
   // ── Overview: risk score breakdown ────────────────────────────────────────
@@ -627,12 +640,62 @@ function EmailDetailPanel({ email, onStatusChange, onSendToAI, onSearchLogs }) {
               {aiLoading ? (
                 <div className="flex flex-col items-center justify-center h-24 gap-3">
                   <Loader size={18} className="text-blue-400 animate-spin" />
-                  <p className="text-muted text-xs">Qwen3 is analyzing this email…</p>
+                  <p className="text-muted text-xs">Retrieving ATT&CK context and assessing…</p>
                 </div>
               ) : aiAnalysis ? (
-                <p className="text-primary text-xs leading-relaxed whitespace-pre-wrap">{aiAnalysis}</p>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      aiAnalysis.payload.verdict === 'PHISHING' ? 'bg-red-500/20 text-red-400'
+                      : aiAnalysis.payload.verdict === 'SUSPICIOUS' ? 'bg-amber-500/20 text-amber-400'
+                      : aiAnalysis.payload.verdict === 'BENIGN' ? 'bg-green-500/20 text-green-400'
+                      : 'bg-hover text-muted'}`}>{aiAnalysis.payload.verdict}</span>
+                    <span className="text-muted text-[10px]">AI risk {aiAnalysis.payload.risk_score}/100</span>
+                    <span className="text-muted text-[10px]">confidence {aiAnalysis.payload.confidence}</span>
+                    <span className="ml-auto text-muted text-[10px]">{aiAnalysis.elapsed_seconds}s</span>
+                  </div>
+
+                  {!!(aiAnalysis.payload.indicators || []).length && (
+                    <div className="space-y-1.5">
+                      <p className="text-muted text-[10px] uppercase tracking-wider">Indicators</p>
+                      {aiAnalysis.payload.indicators.map((ind, i) => (
+                        <div key={i} className="text-xs">
+                          <span className="text-primary font-medium">{ind.indicator}</span>
+                          <span className="text-muted"> — {ind.why}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {!!(aiAnalysis.payload.recommended_actions || []).length && (
+                    <div className="space-y-1">
+                      <p className="text-muted text-[10px] uppercase tracking-wider">Recommended actions</p>
+                      {aiAnalysis.payload.recommended_actions.map((a, i) => (
+                        <p key={i} className="text-primary text-xs">· {a}</p>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* What grounded it — clickable provenance is the difference
+                      between an assertion and an auditable finding. */}
+                  {!!(aiAnalysis.knowledge_used || []).length && (
+                    <div className="pt-2 border-t border-border">
+                      <p className="text-muted text-[10px] uppercase tracking-wider mb-1">Grounded in</p>
+                      {aiAnalysis.knowledge_used.map(k => (
+                        <p key={k.id} className="text-blue-400 text-[10px]">{k.id} — {k.title}</p>
+                      ))}
+                    </div>
+                  )}
+                  {!!(aiAnalysis.ungrounded_techniques || []).length && (
+                    <p className="text-amber-400 text-[10px]">
+                      Flagged: cited {aiAnalysis.ungrounded_techniques.join(', ')} without retrieved support
+                    </p>
+                  )}
+                </div>
               ) : (
-                <p className="text-muted text-xs">AI analysis unavailable — make sure api_server.py is running on port 8000.</p>
+                <p className="text-muted text-xs">
+                  {aiError ? `AI analysis unavailable — ${aiError}` : 'AI analysis unavailable.'}
+                </p>
               )}
             </div>
 

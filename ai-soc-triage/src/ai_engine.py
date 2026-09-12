@@ -206,6 +206,21 @@ class AIEngine:
         knowledge = self._retrieve(contract, keys)
         return self._call(contract, evidence, knowledge)
 
+    def enrich(self, tab_id: str, evidence: dict[str, Any],
+               keys: dict[str, list[str]] | None = None,
+               top_k: int = 5) -> AnalysisResult:
+        """Contract-driven enrichment for any surface.
+
+        One path so every tab gets the same treatment: the tab's declared
+        schema, retrieval keyed on what the evidence actually contains, and the
+        same validation and grounding check. Anything answering with a
+        hand-written prompt and no retrieval is ungrounded by construction —
+        which is what the email path was doing.
+        """
+        contract = get_contract(tab_id)
+        knowledge = self._retrieve(contract, keys or {}, top_k=top_k)
+        return self._call(contract, evidence, knowledge)
+
     def analyze_campaign(
         self, incidents: list[dict[str, Any]], tab_id: str, verdicts: dict | None = None
     ) -> AnalysisResult:

@@ -1,10 +1,11 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Search, Play, Bookmark, X, ChevronLeft, ChevronRight, Clock, ChevronDown,
          Copy, Download, Send, Sparkles } from 'lucide-react';
 import { severityBg, severityOrder } from '../utils/severityUtils';
 import { parseQuery } from '../utils/queryParser';
 import { aiLogSearch } from '../utils/aiLogSearch';
 import { exportCSV } from '../utils/logExporter';
+import { api } from '../utils/api';
 
 const PAGE_SIZE = 50;
 
@@ -61,6 +62,23 @@ function syntaxHighlightJson(obj) {
 // ─── ExpandedRow ─────────────────────────────────────────────────────────────
 function ExpandedRow({ log, onPivot, onSendToAI, onFindRelated, onInvestigate }) {
   const [copied, setCopied] = useState(false);
+  const [explain, setExplain] = useState(null);
+  const [explainState, setExplainState] = useState('idle'); // idle | loading | error
+  const [explainError, setExplainError] = useState('');
+
+  // Explains one line through the logs contract: the model is given the event
+  // plus knowledge-base chunks retrieved on its event id, process and command
+  // line, and may only cite what came back.
+  function runExplain() {
+    setExplainState('loading');
+    setExplain(null);
+    api.enrichEvent(log)
+      .then(res => {
+        if (res.ok && res.payload) { setExplain(res); setExplainState('idle'); }
+        else { setExplainError(res.error || 'no valid explanation returned'); setExplainState('error'); }
+      })
+      .catch(err => { setExplainError(String(err.message || err)); setExplainState('error'); });
+  }
 
   function copyJson() {
     const { _raw, ...rest } = log;
@@ -119,7 +137,48 @@ function ExpandedRow({ log, onPivot, onSendToAI, onFindRelated, onInvestigate })
               View in Timeline
             </button>
           )}
+          <button onClick={runExplain} disabled={explainState === 'loading'}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-hover border border-border hover:border-blue-500 rounded text-xs text-primary transition-colors disabled:opacity-50">
+            {explainState === 'loading' ? 'Explaining…' : 'Explain this event'}
+          </button>
         </div>
+
+        {(explain || explainState !== 'idle') && (
+          <div className="mt-3 bg-panel border border-border rounded p-3 space-y-2">
+            {explainState === 'loading' && (
+              <p className="text-muted text-[10px]">Retrieving context and explaining…</p>
+            )}
+            {explainState === 'error' && (
+              <p className="text-amber-400 text-[10px]">Could not explain — {explainError}</p>
+            )}
+            {explain && (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                    explain.payload.significance === 'noteworthy' ? 'bg-amber-500/20 text-amber-400'
+                    : explain.payload.significance === 'routine' ? 'bg-green-500/20 text-green-400'
+                    : 'bg-hover text-muted'}`}>{explain.payload.significance}</span>
+                  <span className="text-muted text-[9px]">confidence {explain.payload.confidence}</span>
+                  <span className="ml-auto text-muted text-[9px]">{explain.elapsed_seconds}s</span>
+                </div>
+                <p className="text-primary text-[11px] leading-relaxed">{explain.payload.explanation}</p>
+                {explain.payload.benign_explanation && (
+                  <p className="text-muted text-[10px] leading-relaxed">
+                    <span className="uppercase tracking-wider">Benign baseline</span> — {explain.payload.benign_explanation}
+                  </p>
+                )}
+                {!!(explain.knowledge_used || []).length && (
+                  <div className="pt-2 border-t border-border">
+                    <p className="text-muted text-[9px] uppercase tracking-wider mb-1">Grounded in</p>
+                    {explain.knowledge_used.map(k => (
+                      <p key={k.id} className="text-blue-400 text-[9px]">{k.id} — {k.title}</p>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Right: raw JSON */}
@@ -141,7 +200,7 @@ function ExpandedRow({ log, onPivot, onSendToAI, onFindRelated, onInvestigate })
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function LogsExplorer({ logs, onSelectLog, onInvestigate }) {
+export default function LogsExplorer({ logs, onSelectLog, onInvestigate, initialQuery = '' }) {
   const [searchMode,   setSearchMode]   = useState('ai');
   const [aiQuery,      setAiQuery]      = useState('');
   const [queryInput,   setQueryInput]   = useState('');
@@ -212,6 +271,17 @@ export default function LogsExplorer({ logs, onSelectLog, onInvestigate }) {
     setSearchHistory(next);
     sessionStorage.setItem('log-search-history', JSON.stringify(next));
   }
+
+  // A query handed in from another tab — the header search, or a hunting
+  // hypothesis clicked through — should populate the box and actually run,
+  // rather than being silently dropped.
+  useEffect(() => {
+    if (!initialQuery) return;
+    setSearchMode('ai');
+    setAiQuery(initialQuery);
+    runAI(initialQuery);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuery]);
 
   function runAI(query) {
     const q = query ?? aiQuery;

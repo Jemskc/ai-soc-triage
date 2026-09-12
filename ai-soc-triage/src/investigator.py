@@ -37,9 +37,16 @@ from typing import Any
 import prompts
 from agent_tools import AskedHuman, ToolBox
 
-# A hard ceiling on reasoning steps. Most investigations settle in 4-6; the
-# limit exists so one pathological case cannot monopolise the GPU.
-DEFAULT_MAX_STEPS = 10
+# A hard ceiling on reasoning steps. This must exceed the number of tools, or a
+# thorough agent spends every step gathering and has none left to conclude:
+# measured at 8 steps against 8 tools, 28 of 40 investigations hit the cap and
+# were forced to UNKNOWN despite having gathered plenty of evidence.
+DEFAULT_MAX_STEPS = 12
+
+# Steps reserved at the end for reaching a conclusion. Inside this window the
+# tools are withdrawn — telling a model "you are running out of budget" is
+# advice it can ignore, and it did.
+CONCLUDE_RESERVE = 2
 
 # Steps kept verbatim in the prompt. Older ones are compacted to one line each.
 VERBATIM_STEPS = 4
@@ -83,6 +90,26 @@ RESPOND WITH EXACTLY ONE OF THESE:
    "recommended_actions": ["...", "...", "..."],
    "sources": ["<knowledge chunk ids you used>"]
 }}"""
+
+
+CONCLUDE_ONLY_RULES = """\
+Return exactly one JSON object and nothing else:
+
+{"thought": "<your reasoning>", "action": "conclude", "verdict": {
+   "verdict": "ESCALATE | SUPPRESS | UNKNOWN",
+   "urgency_score": <0-10>,
+   "confidence": <0.0-1.0>,
+   "analyst_summary": "<2 sentences: what happened and why it matters>",
+   "evidence": [{"field": "...", "value": "...", "why": "..."}],
+   "mitre_technique": "<only a technique that came back from search_knowledge, else UNKNOWN>",
+   "business_impact": "<what is at stake, given asset criticality>",
+   "recommended_actions": ["...", "...", "..."],
+   "sources": ["<knowledge chunk ids you used>"]
+}}
+
+Decide on the evidence you have. UNKNOWN is honest when the evidence genuinely
+does not support a conclusion — but do not default to it simply because you
+would have liked more."""
 
 
 @dataclass
@@ -131,7 +158,16 @@ class Investigator:
 
     # -- prompt ------------------------------------------------------------
 
-    def _system(self) -> str:
+    def _system(self, must_conclude: bool = False) -> str:
+        if must_conclude:
+            # No tool list at all: an agent that cannot see a tool cannot call
+            # one, which is more reliable than asking it not to.
+            return "\n\n".join([
+                IDENTITY,
+                "You have used your investigation budget. No further tools are "
+                "available. Conclude now using what you already found.",
+                CONCLUDE_ONLY_RULES,
+            ])
         return "\n\n".join([
             IDENTITY,
             "TOOLS AVAILABLE:\n" + self.tools.catalogue(),
@@ -139,7 +175,8 @@ class Investigator:
         ])
 
     def _user(self, incident: dict[str, Any], transcript: list[dict[str, Any]],
-              step: int, used_tools: set[str] | None = None) -> str:
+              step: int, used_tools: set[str] | None = None,
+              must_conclude: bool = False) -> str:
         used_tools = used_tools or set()
         brief = {
             "incident_id": incident.get("incident_id"),
@@ -172,19 +209,23 @@ class Investigator:
                 f"  Result: {s['observation']}" for s in recent
             ))
 
+        if must_conclude:
+            parts.append(
+                "Your investigation budget is spent. Conclude now on what you "
+                "have gathered above."
+            )
+            return "\n\n".join(parts)
+
         unused = [t for t in self.tools.names() if t not in used_tools]
         if unused:
             parts.append("TOOLS YOU HAVE NOT USED YET: " + ", ".join(unused))
 
-        remaining = self.max_steps - step
-        if remaining <= 2:
-            parts.append(
-                f"BUDGET: {remaining} step(s) left. Conclude now with what you "
-                "have. If it is not enough, conclude UNKNOWN and say what is missing."
-            )
-        else:
-            parts.append(f"BUDGET: {remaining} of {self.max_steps} steps remaining.")
-
+        remaining = self.max_steps - step - CONCLUDE_RESERVE
+        parts.append(
+            f"BUDGET: {max(0, remaining)} investigation step(s) left before you "
+            "must conclude. Gathering everything is not the goal — conclude as "
+            "soon as the evidence supports a decision."
+        )
         parts.append("What is your next action? Respond with one JSON object.")
         return "\n\n".join(parts)
 
@@ -220,9 +261,11 @@ class Investigator:
 
         first_step = len(result.steps) + 1
         for step in range(first_step, self.max_steps + 1):
+            must_conclude = step > self.max_steps - CONCLUDE_RESERVE
             raw = self.backend.generate_text(
-                system=self._system(),
-                user=self._user(incident, transcript, step, used_tools),
+                system=self._system(must_conclude),
+                user=self._user(incident, transcript, step, used_tools,
+                                must_conclude),
                 # Action steps are a small JSON object; only the final verdict
                 # needs room. Budgeting per step rather than uniformly is most
                 # of the runtime saving.
@@ -297,6 +340,18 @@ class Investigator:
                 continue
 
             # -- tool call --------------------------------------------------
+            if must_conclude:
+                refusal = "No tools remain. Respond with conclude."
+                transcript.append({
+                    "step": step, "tool": name, "args": {},
+                    "observation": refusal,
+                    "summary": "tool refused; budget spent",
+                })
+                # Recorded, not just transcribed: a refused step is part of how
+                # the verdict was reached and belongs in the audit trail.
+                self._record(result, step, name, {}, thought, refusal)
+                continue
+
             args = action.get("args") or {}
             fingerprint = f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
             if fingerprint in seen_calls:

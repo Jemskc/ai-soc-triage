@@ -149,10 +149,46 @@ class Autopilot:
 
     # -- lifecycle ---------------------------------------------------------
 
+    def _restore(self) -> None:
+        """Reload verdicts already on disk.
+
+        Verdicts accumulate in memory, so a restart used to leave the dashboard
+        showing an empty Alerts tab while cases.json still held the completed
+        work — the analysis was there, the view had simply forgotten it.
+        """
+        from pipeline import CASES_PATH
+
+        if not CASES_PATH.exists():
+            return
+        try:
+            saved = json.loads(CASES_PATH.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return
+
+        for case in saved.get("cases", []):
+            iid = case.get("incident_id")
+            payload = case.get("payload") or (case.get("investigation") or {}).get("verdict")
+            if not iid or not payload:
+                continue
+            self._verdicts[iid] = {
+                "tab_id": "alerts",
+                "ok": True,
+                "payload": payload,
+                "risk": case.get("risk"),
+                "autonomy": case.get("autonomy"),
+                "asset_criticality": case.get("asset_criticality"),
+                "investigation": case.get("investigation"),
+                "knowledge_used": case.get("knowledge_used", []),
+            }
+        if self._verdicts:
+            self.state.cases_analysed = len(self._verdicts)
+            self.bus.publish("state.restored", verdicts=len(self._verdicts))
+
     def start(self, watch_inbox: bool = True) -> None:
         if self.state.running:
             return
         self._stop.clear()
+        self._restore()
         self.state.running = True
         self._worker = threading.Thread(target=self._work_loop, daemon=True, name="autopilot")
         self._worker.start()
@@ -240,9 +276,15 @@ class Autopilot:
 
         self.state.incidents_total += len(outcome.incidents)
         with self._lock:
-            # Highest-ranked first across everything still waiting.
+            # Skip anything already decided: a restart should resume the queue,
+            # not spend an hour of GPU redoing finished work.
+            fresh = [i for i in outcome.incidents
+                     if i["incident_id"] not in self._verdicts]
+            skipped = len(outcome.incidents) - len(fresh)
+            if skipped:
+                self.bus.publish("cycle.resumed", already_analysed=skipped)
             self._pending = sorted(
-                self._pending + outcome.incidents,
+                self._pending + fresh,
                 key=lambda i: -i.get("evidence_weight", 0),
             )
             self.state.pending_cases = len(self._pending)

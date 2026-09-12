@@ -143,7 +143,7 @@ class Orchestrator:
                 assets=self.inventory, case_memory=self.memory,
             )
             investigator = Investigator(
-                self.engine.backend, toolbox, max_steps=8, on_step=self.on_step
+                self.engine.backend, toolbox, max_steps=12, on_step=self.on_step
             )
             outcome = investigator.run(incident, resume=resume)
             case.investigation = outcome.to_dict()

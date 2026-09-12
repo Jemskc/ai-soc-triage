@@ -7,20 +7,9 @@ import Sidebar from './components/Sidebar';
 import Footer from './components/Footer';
 import AIPanel from './components/AIPanel';
 import ImportScreen from './components/ImportScreen';
-import LogsExplorer from './pages/LogsExplorer';
-import EmailAnalysis from './pages/EmailAnalysis';
 
-import KPICard from './components/overview/KPICard';
-import ThreatTrendChart from './components/overview/ThreatTrendChart';
-import SeverityDonut from './components/overview/SeverityDonut';
-import TopSourcesTable from './components/overview/TopSourcesTable';
-import RecentAlertsTable from './components/overview/RecentAlertsTable';
 
 import AlertsPage from './components/alerts/AlertsPage';
-import InvestigationTimeline from './components/investigations/InvestigationTimeline';
-import ThreatHunting from './components/pages/ThreatHunting';
-import Assets from './components/pages/Assets';
-import Reports from './components/pages/Reports';
 import Settings from './components/pages/Settings';
 
 import { AlertTriangle, Shield, Globe, Users, Loader } from 'lucide-react';
@@ -30,14 +19,12 @@ import AnalysisProgress, { DataSourceBadge } from './components/AnalysisProgress
 import AISituationReport from './components/overview/AISituationReport';
 import AnalysisCoverage from './components/AnalysisCoverage';
 import LiveAgentActivity from './components/LiveAgentActivity';
-import AIAttackChain from './components/investigations/AIAttackChain';
-import AIAssetRisk from './components/pages/AIAssetRisk';
-import AIHuntHypotheses from './components/pages/AIHuntHypotheses';
-import BenchmarkReport from './components/pages/BenchmarkReport';
-import Playbooks from './components/pages/Playbooks';
-import SOCCore from './components/agents/SOCCore';
+import LiveLogs from './components/pages/LiveLogs';
+import EmailAnalysis from './pages/EmailAnalysis';
+import AIInvestigation from './components/pages/AIInvestigation';
+import EvidenceGraph from './components/pages/EvidenceGraph';
+import ResponsePage from './components/pages/ResponsePage';
 import AuditLog from './components/pages/AuditLog';
-import AnalystQuestions from './components/pages/AnalystQuestions';
 import DetectionEngineering from './components/pages/DetectionEngineering';
 import IngestPanel from './components/pages/IngestPanel';
 
@@ -83,12 +70,15 @@ function Dashboard() {
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [selectedLog, setSelectedLog] = useState(null);
   const [selectedEmail, setSelectedEmail] = useState(null);
-  const [activeNav, setActiveNav] = useState('overview');
+  const [activeNav, setActiveNav] = useState('logs');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const [loadProgress, setLoadProgress] = useState({ done: 0, total: 0 });
   const [toast, setToast] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  // Which incident the AI / Evidence / Response tabs are focused on, so moving
+  // between them keeps the same case in view.
+  const [focusedIncident, setFocusedIncident] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('soc-theme') || 'dark');
 
   useEffect(() => {
@@ -128,7 +118,7 @@ function Dashboard() {
       setFileInfo({ name: file.name, size: file.size, importedAt: new Date().toISOString(), count: parsed.length });
       setSelectedAlert(null);
       setSelectedLog(null);
-      setActiveNav('overview');
+      setActiveNav('logs');
       showToast(`${parsed.length.toLocaleString()} records loaded from ${file.name}`, 'success');
     } catch (err) {
       showToast('Could not parse file. Try JSON, CSV, or plain text log format.');
@@ -143,7 +133,7 @@ function Dashboard() {
     setFileInfo({ name: 'sample-logs.json', size: 0, importedAt: new Date().toISOString(), count: parsed.length });
     setSelectedAlert(null);
     setSelectedLog(null);
-    setActiveNav('overview');
+    setActiveNav('logs');
   }
 
   function handleSearch(query) {
@@ -158,6 +148,7 @@ function Dashboard() {
     const match = incidentsByUrgency.find(i => i.incident_id === incidentId);
     if (!match) return;
     handleSelectAlert({ ...match, id: match.incident_id });
+    setFocusedIncident(incidentId);
     setSearchQuery('');
     setActiveNav('alerts');
   }
@@ -183,61 +174,37 @@ function Dashboard() {
     : safeLogs;
 
   function renderContent() {
-    if (activeNav === 'email') {
-      return (
-        <EmailAnalysis
-          onSelectEmail={handleSelectEmail}
-          onSearchLogs={query => { setSearchQuery(query); setActiveNav('logs'); }}
-        />
-      );
-    }
     if (!loaded) return <ImportScreen onImport={handleImport} onSampleData={handleSampleData} />;
 
-
     switch (activeNav) {
-      case 'overview':
+      case 'logs':
         return (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 animate-fadeIn">
-            {/* What is happening, before how many of it there are. */}
-            <LiveAgentActivity />
-            <AISituationReport onSelectIncident={jumpToIncident} />
-            {/* Answers "did the AI actually check this?" before anything else
-                on the page invites the reader to assume it did. */}
-            <AnalysisCoverage />
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <KPICard
-                label="Total Events"
-                value={metrics?.events_ingested ?? safeLogs.length}
-                icon={Shield}
-                color="#3b82f6"
-                sub={metrics ? `${safeLogs.length.toLocaleString()} published to views` : 'from imported file'}
-              />
-              <KPICard
-                label={metrics ? 'Incidents' : 'Critical Alerts'}
-                value={metrics?.incidents ?? safeLogs.filter(l => l.severity === 'CRITICAL').length}
-                icon={AlertTriangle}
-                color="#ef4444"
-                sub={metrics ? `${metrics.rule_alerts} rule alerts correlated` : 'immediate action required'}
-              />
-              <KPICard label="Unique Source IPs" value={new Set(safeLogs.map(l => l.sourceIP)).size} icon={Globe} color="#f97316" sub="distinct attacker addresses" />
-              <KPICard label="Unique Users" value={new Set(safeLogs.map(l => l.user).filter(u => u !== 'Unknown')).size} icon={Users} color="#a855f7" sub="affected accounts" />
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div className="lg:col-span-2">
-                <ThreatTrendChart logs={safeLogs} />
-              </div>
-              <SeverityDonut logs={safeLogs} />
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <TopSourcesTable logs={safeLogs} />
-              <RecentAlertsTable logs={safeLogs} onSelect={alert => { handleSelectAlert(alert); setActiveNav('alerts'); }} />
-            </div>
+          <div className="flex-1 flex flex-col p-4 min-h-0">
+            <LiveLogs
+              searchQuery={searchQuery}
+              onSelectLog={handleSelectLog}
+              onInvestigate={log => {
+                handleSelectAlert(log);
+                setActiveNav('alerts');
+              }}
+            />
           </div>
+        );
+
+      case 'email':
+        return (
+          <EmailAnalysis
+            onSelectEmail={handleSelectEmail}
+            onSearchLogs={q => { setSearchQuery(q); setActiveNav('logs'); }}
+          />
         );
 
       case 'alerts':
         return (
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <LiveAgentActivity />
+            <AISituationReport onSelectIncident={jumpToIncident} />
+            <AnalysisCoverage />
             <AlertsPage
               logs={safeLogs}
               externalQuery={searchQuery}
@@ -247,82 +214,45 @@ function Dashboard() {
           </div>
         );
 
-      case 'logs':
-        return (
-          <LogsExplorer
-            logs={safeLogs}
-            onSelectLog={handleSelectLog}
-            onInvestigate={log => { handleSelectAlert(log); setActiveNav('investigations'); }}
-          />
-        );
-
-
-      case 'investigations':
-        return (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <AIAttackChain onSelectIncident={jumpToIncident} />
-            <InvestigationTimeline logs={safeLogs} selectedAlert={selectedAlert} />
-          </div>
-        );
-
-      case 'hunting':
-        return (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <AIHuntHypotheses onRunQuery={q => { setSearchQuery(q); setActiveNav('logs'); }} />
-            <ThreatHunting logs={safeLogs} />
-          </div>
-        );
-
-      case 'assets':
-        return (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <AIAssetRisk onSelectIncident={jumpToIncident} />
-            <Assets logs={safeLogs} />
-          </div>
-        );
-
-      case 'reports':
-        return (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <BenchmarkReport />
-            <Reports logs={safeLogs} fileInfo={fileInfo} />
-          </div>
-        );
-
-      case 'soccore':
+      case 'ai':
         return (
           <div className="flex-1 overflow-y-auto p-4">
-            <SOCCore onSelectIncident={jumpToIncident} />
+            <AIInvestigation
+              selectedId={focusedIncident}
+              onSelect={setFocusedIncident}
+            />
           </div>
         );
 
-      case 'playbooks':
-        return <div className="flex-1 overflow-y-auto p-4"><Playbooks /></div>;
-
-      case 'detection':
-        return <div className="flex-1 overflow-y-auto p-4"><DetectionEngineering /></div>;
-
-      case 'questions':
-        return <div className="flex-1 overflow-y-auto p-4"><AnalystQuestions /></div>;
-
-      case 'audit':
-        return <div className="flex-1 overflow-y-auto p-4"><AuditLog /></div>;
-
-      case 'ingest':
+      case 'evidence':
         return (
           <div className="flex-1 overflow-y-auto p-4">
-            <IngestPanel
-              onImport={handleImport}
-              onSampleData={handleSampleData}
-              fileInfo={fileInfo}
+            <EvidenceGraph
+              selectedId={focusedIncident}
+              onSelect={setFocusedIncident}
+            />
+          </div>
+        );
+
+      case 'response':
+        return (
+          <div className="flex-1 overflow-y-auto p-4">
+            <ResponsePage
+              selectedId={focusedIncident}
+              onSelect={setFocusedIncident}
             />
           </div>
         );
 
       case 'settings':
         return (
-          <div className="flex-1 overflow-y-auto p-4">
-            <Settings fileInfo={fileInfo} onImport={() => document.querySelector('[data-import]')?.click()} />
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <IngestPanel onImport={handleImport} onSampleData={handleSampleData}
+                         fileInfo={fileInfo} />
+            <DetectionEngineering />
+            <AuditLog />
+            <Settings fileInfo={fileInfo}
+                      onImport={() => document.querySelector('[data-import]')?.click()} />
           </div>
         );
 

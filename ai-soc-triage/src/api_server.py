@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import os
 
@@ -560,6 +561,7 @@ import threading
 import uuid as _uuid
 from pathlib import Path as _Path
 
+import correlator
 import pipeline as _pipeline
 from knowledge_base import get_kb as _get_kb
 from tab_contracts import as_json as _contracts_json
@@ -1045,6 +1047,106 @@ def answer_question(question_id: str, req: AnswerRequest):
                    answer=req.answer[:200])
     resumed = ap.resume_answered(answered)
     return {"ok": True, "incident_id": answered.incident_id, "resumed": resumed}
+
+
+class EnrichRequest(BaseModel):
+    payload: dict[str, Any]
+
+
+def _enrich(tab_id: str, evidence: dict[str, Any],
+            keys: dict[str, Any]) -> dict[str, Any]:
+    """Shared path so every surface is grounded the same way."""
+    try:
+        engine = _engine_factory()
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"model unavailable: {exc}"}
+    result = engine.enrich(tab_id, evidence, keys)
+    return result.to_dict()
+
+
+@app.post("/enrich/email")
+def enrich_email(req: EnrichRequest):
+    """Phishing assessment through the email contract, with retrieval.
+
+    Replaces a hand-written prompt that had no schema, no retrieval and no
+    grounding check — it could name any technique it liked and nothing
+    verified it.
+    """
+    email = req.payload or {}
+    evidence = {
+        "subject": str(email.get("subject", ""))[:200],
+        "from": str(email.get("from", ""))[:120],
+        "to": str(email.get("to", ""))[:120],
+        "spf": email.get("spf"), "dkim": email.get("dkim"), "dmarc": email.get("dmarc"),
+        "reply_to": str(email.get("replyTo", ""))[:120],
+        "urls": [str(u)[:120] for u in (email.get("urls") or [])][:8],
+        "attachments": [str(a)[:80] for a in (email.get("attachments") or [])][:6],
+        "body_excerpt": str(email.get("body", ""))[:900],
+    }
+    keys = {
+        "event_ids": [],
+        "processes": [str(a) for a in (email.get("attachments") or [])][:3],
+        "terms": ["phishing", "initial access", "user execution",
+                  "spearphishing attachment", "spearphishing link"],
+    }
+    return _enrich("email", evidence, keys)
+
+
+@app.post("/enrich/event")
+def enrich_event(req: EnrichRequest):
+    """Explain one log line: what it means, and its benign baseline."""
+    event = req.payload or {}
+    # Accept both the normalised row the dashboard holds and a raw
+    # Windows/Sysmon record, so the endpoint works on whatever the caller has.
+    def pick(*names):
+        for n in names:
+            if (v := event.get(n)) not in (None, ""):
+                return v
+        return None
+
+    process = pick("process", "Image", "process_name", "ProcessName")
+    command_line = str(pick("commandLine", "CommandLine") or "")[:300]
+    basename = str(process).rsplit("\\", 1)[-1] if process else ""
+
+    evidence = {
+        "event_id": pick("eventId", "event_id", "EventID"),
+        "host": pick("host", "Computer", "computer"),
+        "user": pick("user", "User"),
+        "process": process,
+        "command_line": command_line,
+        "source_ip": pick("sourceIP", "SourceIp"),
+        "raw": {k: str(v)[:120] for k, v in (event.get("_raw") or {}).items()},
+    }
+    # Retrieve on the basename rather than the full path: the knowledge base
+    # indexes `rundll32.exe`, not `C:\Windows\System32\rundll32.exe`.
+    keys = {
+        "event_ids": [str(evidence["event_id"])] if evidence["event_id"] else [],
+        "processes": [basename] if basename else [],
+        "terms": correlator.commandline_terms(command_line)
+        or ["windows event id meaning and benign baseline"],
+    }
+    return _enrich("logs", evidence, keys)
+
+
+@app.post("/enrich/graph")
+def enrich_graph(req: EnrichRequest):
+    """What the connected entities mean together."""
+    inc = req.payload or {}
+    evidence = {
+        "hosts": inc.get("hosts", [])[:6],
+        "users": inc.get("users", [])[:6],
+        "processes": [str(p).rsplit("\\", 1)[-1] for p in inc.get("processes", [])][:8],
+        "event_ids": inc.get("event_ids", [])[:8],
+        "techniques": [t.get("technique") for t in inc.get("techniques_suspected", [])][:4],
+        "rules_fired": [r.get("rule") for r in inc.get("rules_fired", [])][:4],
+        "shared_entities": inc.get("shared_entities", [])[:6],
+    }
+    keys = {
+        "event_ids": inc.get("event_ids", [])[:4],
+        "processes": [str(p).rsplit("\\", 1)[-1] for p in inc.get("processes", [])][:4],
+        "terms": [t.get("technique") for t in inc.get("techniques_suspected", [])][:3],
+    }
+    return _enrich("evidence_graph", evidence, keys)
 
 
 @app.get("/detection-metrics")

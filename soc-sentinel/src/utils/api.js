@@ -120,6 +120,16 @@ export const api = {
     }),
   telemetryCoverage: () => request('/telemetry-coverage'),
 
+  // Contract-driven enrichment. Every surface goes through the same path —
+  // the tab's declared schema, retrieval keyed on the evidence, and the
+  // grounding check — so no tab answers from a hand-written prompt.
+  enrichEmail: (email) =>
+    request('/enrich/email', { method: 'POST', body: JSON.stringify({ payload: email }) }),
+  enrichEvent: (event) =>
+    request('/enrich/event', { method: 'POST', body: JSON.stringify({ payload: event }) }),
+  enrichGraph: (graph) =>
+    request('/enrich/graph', { method: 'POST', body: JSON.stringify({ payload: graph }) }),
+
   // Records an analyst decision on a proposed action. Nothing executes
   // server-side; this is the human gate on destructive steps.
   sendApproval: (body) =>

@@ -242,6 +242,29 @@ TAB_CONTRACTS: dict[str, TabContract] = {
         retrieval_hints=["attack mitigations"],
         token_budget=900,
     ),
+    "evidence_graph": TabContract(
+        tab_id="evidence_graph",
+        label="Evidence Graph",
+        scope=SCOPE_INCIDENT,
+        analyst_question=(
+            "What do these connected entities mean together, and which link is "
+            "the one that matters?"
+        ),
+        output_schema={
+            "story": "3-4 sentences describing what connects these entities, in "
+                     "the order it happened where that can be established",
+            "key_link": "the single most important relationship here and why it "
+                        "is the one to look at first",
+            "pivot_next": "array of 2-3 {\"entity\", \"why\"} — what to examine "
+                          "next and what you expect to find",
+            "spread_risk": "one sentence on whether this looks contained to these "
+                           "assets or likely to reach further",
+            **_GROUNDING,
+        },
+        retrieval_hints=["attack technique detection guidance",
+                         "lateral movement", "technique relationships"],
+        token_budget=650,
+    ),
     "logs": TabContract(
         tab_id="logs",
         label="Logs Explorer",

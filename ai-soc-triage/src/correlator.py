@@ -20,6 +20,7 @@ Grouping happens in two passes:
 from __future__ import annotations
 
 import hashlib
+import re
 from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any, Iterable
@@ -301,6 +302,32 @@ def evidence_for_model(incident: dict[str, Any]) -> dict[str, Any]:
         "sample_events": [_trim_event(a.get("event_data") or {}) for a in
                           incident.get("sample_alerts", [])[:2]],
     }
+
+
+_CMDLINE_STOP = {
+    "exe", "dll", "the", "and", "for", "com", "windows", "system32", "program",
+    "files", "microsoft", "true", "false", "null", "http", "https",
+}
+
+
+def commandline_terms(command_line: str, limit: int = 6) -> list[str]:
+    """Retrieval terms from a command line.
+
+    The command line is where the LOLBAS signal lives — `rundll32.exe
+    advpack.dll,RegisterOCX` is the whole tell, and a fixed query string
+    reaches none of it. Splitting on path and argument separators surfaces the
+    tokens the knowledge base is actually indexed on.
+    """
+    tokens, seen = [], set()
+    for tok in re.split(r"[\s,;/\\\"\'()=]+", command_line or ""):
+        tok = tok.strip(".-").lower()
+        if len(tok) < 3 or tok in _CMDLINE_STOP or tok.isdigit() or tok in seen:
+            continue
+        seen.add(tok)
+        tokens.append(tok)
+        if len(tokens) >= limit:
+            break
+    return tokens
 
 
 def retrieval_keys(incident: dict[str, Any]) -> dict[str, list[str]]:

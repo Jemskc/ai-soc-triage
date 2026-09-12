@@ -49,3 +49,8 @@ soc-sentinel/public/events.json
 ai-soc-eval/lanl_results.json
 ai-soc-eval/selftest/
 ai-soc-triage/data/inventory.json
+
+# LANL Cyber-1 dataset — 10.7GB of source telemetry, fetched not authored.
+# redteam.txt.gz is the ground-truth label file; kept out too so the data and
+# its labels stay together outside the repo.
+*.txt.gz
