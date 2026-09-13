@@ -45,6 +45,11 @@ WATCH_INTERVAL_SECONDS = 5
 # cannot starve whatever arrives next.
 CASES_PER_CYCLE = 10
 
+# Rows kept for the log view. The dashboard holds these in browser memory,
+# so this is a UI limit, not an analysis one — the funnel has already seen
+# every event by the time trimming happens.
+MAX_RETAINED_EVENTS = 250_000
+
 # Campaign-scope surfaces: they reason across the whole case set rather than
 # one incident, so they run once the backlog is worked rather than per case.
 CAMPAIGN_TABS = ("overview", "overview_plain", "investigations",
@@ -260,7 +265,24 @@ class Autopilot:
         from funnel import TriageFunnel
 
         # Held so the dashboard bundle can be rebuilt as each case completes.
-        self._last_df = df
+        # Accumulated, not replaced: a corpus arrives as many batches, and
+        # keeping only the newest made the log view show the last batch alone.
+        # Ingesting 50,702 events in eleven batches left "702 events" on screen
+        # while the incident count kept climbing — the analysis was right and
+        # the evidence behind it had vanished.
+        self._last_df = df if self._last_df is None else pd.concat(
+            [self._last_df, df], ignore_index=True)
+        # The log view holds every row in browser memory, so this cannot grow
+        # without limit. Oldest rows are dropped first, and the cap is stated
+        # rather than silent.
+        if len(self._last_df) > MAX_RETAINED_EVENTS:
+            dropped = len(self._last_df) - MAX_RETAINED_EVENTS
+            self._last_df = self._last_df.tail(MAX_RETAINED_EVENTS).reset_index(drop=True)
+            self.bus.publish("events.trimmed", dropped=dropped,
+                             retained=MAX_RETAINED_EVENTS)
+        # `df` deliberately stays the incoming batch. Funnelling the whole
+        # accumulated set each cycle would be quadratic and would re-derive
+        # incidents already produced; only the log view needs the history.
         self.state.cycles += 1
         self.state.events_ingested += len(df)
         self.state.stage = "funnel"

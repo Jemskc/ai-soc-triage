@@ -177,3 +177,38 @@ def test_supplied_alerts_still_win():
     metrics = pipeline.build_metrics(
         pd.DataFrame([{"x": 1}]), [{"a": 1}, {"a": 2}], incidents, {})
     assert metrics["rule_alerts"] == 2
+
+
+# ── a corpus arrives in batches; the log view must not forget the earlier ones ─
+# Ingesting 50,702 events in eleven batches left "702 events" on screen — the
+# last batch — while the incident count kept climbing. The analysis was right
+# and the evidence behind it had disappeared.
+
+def test_events_accumulate_across_batches_but_the_funnel_sees_only_the_new_one():
+    import inspect
+
+    import autopilot
+
+    src = inspect.getsource(autopilot.Autopilot._run_cycle)
+    assert "pd.concat" in src, "batches must accumulate for the log view"
+
+    # The funnel must not be handed the whole history each cycle. Matched as a
+    # whole statement: a loose substring also hits the retention trim
+    # (`self._last_df = self._last_df.tail(...)`) and fails on correct code.
+    reassigns_df = [
+        line for line in src.splitlines()
+        if line.strip() == "df = self._last_df"
+    ]
+    assert not reassigns_df, (
+        "funnelling the accumulated set is quadratic and re-derives incidents")
+
+
+def test_retention_cap_exists_and_announces_itself():
+    import inspect
+
+    import autopilot
+
+    assert autopilot.MAX_RETAINED_EVENTS >= 100_000
+    src = inspect.getsource(autopilot.Autopilot._run_cycle)
+    # Dropping evidence silently is worse than dropping it.
+    assert "events.trimmed" in src

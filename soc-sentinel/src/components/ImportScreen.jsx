@@ -49,7 +49,16 @@ export default function ImportScreen({ onImport, onSampleData }) {
               {dragging ? 'Drop to import' : 'Load a log file to begin analysis'}
             </p>
             <p className="text-muted text-xs">Drag & drop or click to browse</p>
-            <p className="text-muted text-xs mt-1">Supports .json, .csv, .log, .txt</p>
+            <p className="text-muted text-xs mt-1">Supports .json, .jsonl, .csv, .log, .txt</p>
+            {/* Said plainly, because it was not obvious and cost real time:
+                this loads the file into the browser for viewing. The AI runs
+                on the server, against what the server has ingested. */}
+            <p className="text-amber-400/80 text-[10px] mt-2 max-w-sm">
+              This loads a file into the log viewer only. The AI analyses what the
+              server has ingested — for a large corpus use{' '}
+              <span className="font-mono">scripts/ingest_golden.py</span>, which
+              streams it to the analysis pipeline.
+            </p>
           </div>
           <button
             onClick={e => { e.stopPropagation(); inputRef.current?.click(); }}
@@ -63,7 +72,7 @@ export default function ImportScreen({ onImport, onSampleData }) {
         <input
           ref={inputRef}
           type="file"
-          accept=".json,.csv,.log,.txt"
+          accept=".json,.jsonl,.csv,.log,.txt"
           className="hidden"
           onChange={e => { if (e.target.files[0]) onImport(e.target.files[0]); e.target.value = ''; }}
         />
