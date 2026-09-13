@@ -1,462 +1,158 @@
 {
- "cases": 27,
+ "cases": 8,
  "citations": {
-  "generic": 16,
-  "brief": 36,
-  "absent": 2,
-  "tool": 5
+  "absent": 10,
+  "tool": 1,
+  "brief": 2,
+  "generic": 4
  },
- "investigation_yield": 0.1163,
- "cases_with_zero_yield": 24,
- "zero_yield_share": 0.8889,
- "mean_steps": 10.6,
- "mean_seconds": 92.2,
+ "investigation_yield": 0.0769,
+ "cases_with_zero_yield": 5,
+ "zero_yield_share": 0.625,
+ "mean_steps": 10.1,
+ "mean_seconds": 94.6,
  "interpretation": "Yield is the share of cited evidence that came from a tool observation rather than from the incident brief the agent started with. A low yield does not mean the verdict is wrong; it means the loop did not contribute to it, and the same answer was available in one call instead of eleven.",
  "rows": [
   {
-   "incident_id": "INC-1D4A90E90A",
+   "incident_id": "INC-DBC085CB9C",
    "verdict": "ESCALATE",
-   "confidence": 0.85,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 87.0,
-   "citations": {
-    "generic": 2,
-    "brief": 1
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "critical",
-     "origin": "generic",
-     "field": "rule_severity"
-    },
-    {
-     "value": "lsass.exe",
-     "origin": "brief",
-     "field": "processes"
-    },
-    {
-     "value": "16",
-     "origin": "generic",
-     "field": "alert_count"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-5B4790C9CE",
-   "verdict": "ESCALATE",
-   "confidence": 0.9,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 90.0,
-   "citations": {
-    "brief": 2
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "ppldump.exe, lsass.exe",
-     "origin": "brief",
-     "field": "processes"
-    },
-    {
-     "value": "Mimikatz Credential Dumping Behavior",
-     "origin": "brief",
-     "field": "rules_fired"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-1FF60B4E0C",
-   "verdict": "ESCALATE",
-   "confidence": 0.85,
-   "steps": 10,
-   "model_calls": 11,
-   "elapsed_seconds": 112.7,
-   "citations": {
-    "generic": 1,
-    "brief": 2
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "5",
-     "origin": "generic",
-     "field": "hosts_reached"
-    },
-    {
-     "value": "[4765]",
-     "origin": "brief",
-     "field": "event_ids"
-    },
-    {
-     "value": "lsass.exe",
-     "origin": "brief",
-     "field": "processes"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-0CAE708AAB",
-   "verdict": "ESCALATE",
-   "confidence": 0.9,
+   "confidence": 0.5,
    "steps": 10,
    "model_calls": 10,
-   "elapsed_seconds": 79.6,
+   "elapsed_seconds": 72.3,
    "citations": {
-    "brief": 1,
-    "generic": 1
+    "absent": 3
    },
    "yield": 0.0,
    "detail": [
     {
-     "value": "mimikatz.exe",
-     "origin": "brief",
-     "field": "processes"
+     "value": "process observed: psexesvc.exe",
+     "origin": "absent",
+     "field": null
     },
     {
-     "value": "2",
-     "origin": "generic",
-     "field": "alert_count"
+     "value": "rule fired: Lateral Movement via PsExec",
+     "origin": "absent",
+     "field": null
+    },
+    {
+     "value": "rule fired: Mimikatz Credential Dumping Behavior",
+     "origin": "absent",
+     "field": null
     }
    ]
   },
   {
-   "incident_id": "INC-F289823B04",
+   "incident_id": "INC-B8ED7AFAB4",
    "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 88.8,
+   "confidence": 0.5,
+   "steps": 9,
+   "model_calls": 9,
+   "elapsed_seconds": 66.9,
    "citations": {
-    "brief": 1,
-    "generic": 1
+    "absent": 3
    },
    "yield": 0.0,
    "detail": [
     {
-     "value": "PPLdump.exe",
-     "origin": "brief",
-     "field": "processes"
+     "value": "process observed: psexesvc.exe",
+     "origin": "absent",
+     "field": null
     },
     {
-     "value": "4",
-     "origin": "generic",
-     "field": "hosts_reached"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-3DAE21DEF3",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 92.4,
-   "citations": {
-    "brief": 2,
-    "generic": 1
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "wmic.exe",
-     "origin": "brief",
-     "field": "processes"
+     "value": "rule fired: Lateral Movement via PsExec",
+     "origin": "absent",
+     "field": null
     },
     {
-     "value": "Mimikatz Credential Dumping Behavior",
-     "origin": "brief",
-     "field": "rules_fired"
-    },
-    {
-     "value": "7",
-     "origin": "generic",
-     "field": "alert_count"
+     "value": "rule fired: Mimikatz Credential Dumping Behavior",
+     "origin": "absent",
+     "field": null
     }
    ]
   },
   {
    "incident_id": "INC-885721D5F5",
    "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 10,
-   "model_calls": 11,
-   "elapsed_seconds": 115.5,
+   "confidence": 0.5,
+   "steps": 9,
+   "model_calls": 9,
+   "elapsed_seconds": 64.3,
    "citations": {
-    "generic": 1,
-    "brief": 2
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "4",
-     "origin": "generic",
-     "field": "hosts_reached"
-    },
-    {
-     "value": "python.exe",
-     "origin": "brief",
-     "field": "processes"
-    },
-    {
-     "value": "4673",
-     "origin": "brief",
-     "field": "event_ids"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-30C1B10B93",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 10,
-   "model_calls": 11,
-   "elapsed_seconds": 106.6,
-   "citations": {
-    "brief": 2
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "AtBroker.exe",
-     "origin": "brief",
-     "field": "processes"
-    },
-    {
-     "value": "Mimikatz Credential Dumping Behavior",
-     "origin": "brief",
-     "field": "rules_fired"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-8AE194AC66",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 84.5,
-   "citations": {
-    "brief": 2
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "mimikatz.exe",
-     "origin": "brief",
-     "field": "processes"
-    },
-    {
-     "value": "Mimikatz Credential Dumping Behavior",
-     "origin": "brief",
-     "field": "rules_fired"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-B12B1B9E9A",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 94.8,
-   "citations": {
-    "brief": 3
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "cscript.exe",
-     "origin": "brief",
-     "field": "process"
-    },
-    {
-     "value": "4656",
-     "origin": "brief",
-     "field": "event_id"
-    },
-    {
-     "value": "4663",
-     "origin": "brief",
-     "field": "event_id"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-7A15437495",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 96.0,
-   "citations": {
-    "generic": 1,
-    "brief": 1
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "1",
-     "origin": "generic",
-     "field": "alert_count"
-    },
-    {
-     "value": "Mimikatz Credential Dumping Behavior",
-     "origin": "brief",
-     "field": "rules_fired"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-51A585808E",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 96.0,
-   "citations": {
-    "generic": 1,
-    "brief": 1
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "critical",
-     "origin": "generic",
-     "field": "rule_severity"
-    },
-    {
-     "value": "Mimikatz Credential Dumping Behavior",
-     "origin": "brief",
-     "field": "rules_fired"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-D6949892C3",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 99.4,
-   "citations": {
-    "generic": 3,
     "absent": 1
    },
    "yield": 0.0,
    "detail": [
     {
-     "value": "5",
-     "origin": "generic",
-     "field": "hosts_reached"
-    },
-    {
-     "value": "9",
-     "origin": "generic",
-     "field": "successful_logons"
-    },
-    {
-     "value": "3",
-     "origin": "generic",
-     "field": "elevated_logons"
-    },
-    {
-     "value": "reg.exe add hklm\\software\\microsoft\\windows\\currentversion\\p",
+     "value": "rule fired: Mimikatz Credential Dumping Behavior",
      "origin": "absent",
-     "field": "reg.exe command"
+     "field": null
     }
    ]
   },
   {
-   "incident_id": "INC-52FC96A89C",
+   "incident_id": "INC-E014F09F69",
    "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 10,
-   "model_calls": 10,
-   "elapsed_seconds": 85.1,
+   "confidence": 0.5,
+   "steps": 9,
+   "model_calls": 9,
+   "elapsed_seconds": 59.1,
    "citations": {
-    "generic": 1,
-    "brief": 1
+    "absent": 2
    },
    "yield": 0.0,
    "detail": [
     {
-     "value": "5",
-     "origin": "generic",
-     "field": "hosts_reached"
+     "value": "process observed: mimikatz.exe",
+     "origin": "absent",
+     "field": null
     },
     {
-     "value": "WerFault.exe",
-     "origin": "brief",
-     "field": "process"
+     "value": "rule fired: Mimikatz Credential Dumping Behavior",
+     "origin": "absent",
+     "field": null
     }
    ]
   },
   {
-   "incident_id": "INC-6D32B40DA3",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 86.9,
+   "incident_id": "INC-383D3C4F0C",
+   "verdict": "SUPPRESS",
+   "confidence": 0.7,
+   "steps": 12,
+   "model_calls": 12,
+   "elapsed_seconds": 137.9,
    "citations": {
-    "brief": 2
+    "tool": 1,
+    "absent": 1
    },
-   "yield": 0.0,
+   "yield": 0.5,
    "detail": [
     {
-     "value": "WMIADAP.exe, WMIC.exe",
-     "origin": "brief",
+     "value": "PPLdump.exe -v lsass lsass.dmp",
+     "origin": "tool",
      "field": "processes"
     },
     {
-     "value": "Behavioural: rare lineage",
-     "origin": "brief",
-     "field": "rules_fired"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-EEDB06092C",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 83.3,
-   "citations": {
-    "brief": 1,
-    "generic": 1
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "UACBypass.exe, winSAT.exe",
-     "origin": "brief",
-     "field": "processes"
-    },
-    {
-     "value": "3",
-     "origin": "generic",
-     "field": "alert_count"
+     "value": "No signs of data exfiltration",
+     "origin": "absent",
+     "field": "network_activity"
     }
    ]
   },
   {
    "incident_id": "INC-752797496E",
    "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 11,
+   "confidence": 0.7,
+   "steps": 10,
    "model_calls": 11,
-   "elapsed_seconds": 89.1,
+   "elapsed_seconds": 115.8,
    "citations": {
     "brief": 2
    },
    "yield": 0.0,
    "detail": [
     {
-     "value": "rundll32.exe -> mshta.exe",
+     "value": "mshta.exe",
      "origin": "brief",
      "field": "processes"
     },
@@ -468,236 +164,50 @@
    ]
   },
   {
-   "incident_id": "INC-C82D402EB8",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 10,
-   "model_calls": 11,
-   "elapsed_seconds": 108.8,
-   "citations": {
-    "brief": 2
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "unsecapp.exe",
-     "origin": "brief",
-     "field": "processes"
-    },
-    {
-     "value": "NT AUTHORITY\\SYSTEM",
-     "origin": "brief",
-     "field": "account"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-2E3DB481F3",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 10,
-   "model_calls": 10,
-   "elapsed_seconds": 82.7,
-   "citations": {
-    "tool": 1,
-    "brief": 1
-   },
-   "yield": 0.5,
-   "detail": [
-    {
-     "value": "UACBypass.exe",
-     "origin": "tool",
-     "field": "process"
-    },
-    {
-     "value": "IEUser",
-     "origin": "brief",
-     "field": "account"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-3120C5B270",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 83.4,
-   "citations": {
-    "brief": 1
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "wmiprvse.exe -> rundll32.exe",
-     "origin": "brief",
-     "field": "processes"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-68EBA65D24",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 88.2,
-   "citations": {
-    "brief": 1,
-    "absent": 1
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "powershell.exe -> makecab.exe",
-     "origin": "brief",
-     "field": "processes"
-    },
-    {
-     "value": "makecab.exe seen 9 times",
-     "origin": "absent",
-     "field": "processes"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-70924EC027",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 10,
-   "model_calls": 11,
-   "elapsed_seconds": 106.3,
-   "citations": {
-    "brief": 2
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "regsvr32.exe",
-     "origin": "brief",
-     "field": "processes"
-    },
-    {
-     "value": "scrobj.dll",
-     "origin": "brief",
-     "field": "command_line"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-E65D40426C",
-   "verdict": "ESCALATE",
-   "confidence": 0.8,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 86.7,
-   "citations": {
-    "brief": 1,
-    "generic": 1
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "PsExec.exe",
-     "origin": "brief",
-     "field": "processes"
-    },
-    {
-     "value": "18",
-     "origin": "generic",
-     "field": "event_ids"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-F0EB15C292",
-   "verdict": "ESCALATE",
-   "confidence": 0.7,
-   "steps": 11,
-   "model_calls": 11,
-   "elapsed_seconds": 92.2,
-   "citations": {
-    "tool": 2
-   },
-   "yield": 1.0,
-   "detail": [
-    {
-     "value": "UACBypass.exe",
-     "origin": "tool",
-     "field": "process"
-    },
-    {
-     "value": "winSAT.exe",
-     "origin": "tool",
-     "field": "process"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-BE6FED405D",
-   "verdict": "UNKNOWN",
+   "incident_id": "INC-1FF60B4E0C",
+   "verdict": "SUPPRESS",
    "confidence": 0.6,
-   "steps": 10,
-   "model_calls": 11,
-   "elapsed_seconds": 100.3,
+   "steps": 11,
+   "model_calls": 12,
+   "elapsed_seconds": 139.1,
    "citations": {
-    "brief": 1
+    "generic": 2
    },
-   "yield": 0.0,
+   "yield": null,
    "detail": [
     {
-     "value": "uacme.exe -> wusa.exe",
-     "origin": "brief",
-     "field": "processes"
-    }
-   ]
-  },
-  {
-   "incident_id": "INC-4477112D97",
-   "verdict": "UNKNOWN",
-   "confidence": 0.6,
-   "steps": 10,
-   "model_calls": 10,
-   "elapsed_seconds": 83.4,
-   "citations": {
-    "generic": 1,
-    "brief": 1
-   },
-   "yield": 0.0,
-   "detail": [
-    {
-     "value": "12, 13",
+     "value": "5",
      "origin": "generic",
-     "field": "event_ids"
+     "field": "hosts_reached"
     },
     {
-     "value": "svchost.exe",
-     "origin": "brief",
-     "field": "processes"
+     "value": "9",
+     "origin": "generic",
+     "field": "successful_logons"
     }
    ]
   },
   {
-   "incident_id": "INC-A334E9B815",
+   "incident_id": "INC-EEDB06092C",
    "verdict": "SUPPRESS",
    "confidence": 0.8,
-   "steps": 9,
-   "model_calls": 9,
-   "elapsed_seconds": 70.8,
+   "steps": 11,
+   "model_calls": 11,
+   "elapsed_seconds": 101.6,
    "citations": {
-    "tool": 2
+    "generic": 2
    },
-   "yield": 1.0,
+   "yield": null,
    "detail": [
     {
-     "value": "['\\\\\\\\*\\\\IPC$', '\\\\\\\\*\\\\ADMIN$', '\\\\\\\\*\\\\SYSVOL']",
-     "origin": "tool",
-     "field": "network_shares"
+     "value": "0",
+     "origin": "generic",
+     "field": "failed_logons"
     },
     {
-     "value": "standard",
-     "origin": "tool",
-     "field": "host_criticality"
+     "value": "normal",
+     "origin": "generic",
+     "field": "network_traffic"
     }
    ]
   }

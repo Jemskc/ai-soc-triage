@@ -470,7 +470,21 @@ class Autopilot:
                         + ". The agent's question is open alongside this, not "
                         "in front of it."
                     ),
-                    "evidence": hands_on,
+                    # Structured like every other verdict's evidence, so the
+                    # audit tooling can trace each value. Emitting the display
+                    # strings verbatim ("process observed: psexesvc.exe") made
+                    # them unmatchable and they were scored as fabricated.
+                    "evidence": [
+                        {"field": "detection",
+                         "value": item.split(": ", 1)[-1],
+                         "why": item.split(": ", 1)[0]}
+                        for item in hands_on
+                    ],
+                    # This verdict came from the deterministic veto, not from
+                    # the agent's reasoning. Marked so investigation-yield
+                    # analysis does not judge a rule as though it were an
+                    # investigation.
+                    "decided_by": "deterministic_veto",
                     "awaiting_answer": asked.question,
                 }
                 case.investigation["awaiting_human"] = None

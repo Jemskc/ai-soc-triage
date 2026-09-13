@@ -160,6 +160,65 @@ def stream_auth(
     return events, stats
 
 
+def load_golden(path: Path, manifest: Path | None = None):
+    """Read golden.jsonl into the pipeline's event schema.
+
+    The golden file is written for durability and inspection — one labelled
+    JSON object per line, stable field names, a sha256 in its manifest. The
+    funnel wants the normalised schema `_to_event` produces. Mapping here keeps
+    the stored dataset independent of internal field naming, so a rename in the
+    pipeline cannot silently invalidate a dataset someone has already published
+    a number against.
+    """
+    manifest = manifest or path.parent / (path.stem + ".manifest.json")
+    if not manifest.exists():
+        raise SystemExit(f"no manifest beside {path}; refusing to guess the base rate")
+    m = json.loads(manifest.read_text())
+
+    events = []
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            g = json.loads(line)
+            failed = str(g.get("outcome", "")).strip().lower() == "failure"
+            events.append({
+                "timestamp": _to_iso(str(g["t"])),
+                "_t": str(g["t"]),
+                "event_id": "4625" if failed else "4624",
+                "computer": g.get("computer", ""),
+                "user": g.get("user", ""),
+                "target_user": g.get("target_user", ""),
+                "source_ip": g.get("source_ip", ""),
+                "process_name": "", "parent_process": "", "command_line": "",
+                "logon_type": _logon_type(str(g.get("logon_type", ""))),
+                "channel": "Security",
+                "source_file": f"lanl-auth-{'red' if g.get('label') else 'benign'}",
+                "attack_folder": "Lateral Movement" if g.get("label") else "",
+                "destination_port": "", "task_name": "", "object_name": "",
+                "service_name": "", "image_path": "", "share_name": "",
+                "relative_target_name": "", "raw_data": "",
+                "raw_message": (f"{g.get('auth_type','')} {g.get('logon_type','')} "
+                                f"{g.get('orientation','')} {g.get('outcome','')} "
+                                f"{g.get('source_ip','')}->{g.get('computer','')}"),
+                "_label": 1 if g.get("label") else 0,
+                "_auth_type": g.get("auth_type", ""),
+                "_orientation": g.get("orientation", ""),
+            })
+
+    c, smp = m["corpus"], m["sample"]
+    stats = {
+        "auth_events_total": c["auth_events_total"],
+        "benign_total": c["benign_total"],
+        "malicious_total": smp["malicious_kept"],
+        "benign_sampled": smp["benign_kept"],
+        "sampling_fraction": smp["benign_sampling_fraction"],
+        "true_base_rate": c["true_base_rate"],
+        "span_days": c["span_days"],
+    }
+    return events, stats, m
+
+
 def _to_event(t, su, du, sc, dc, atype, ltype, orient, outcome, is_red) -> dict[str, Any]:
     """Map a LANL auth record onto the platform's normalised schema.
 
@@ -637,6 +696,8 @@ def main() -> int:
                     help="write the sampled events + stats here after streaming")
     ap.add_argument("--load-sample", type=Path,
                     help="reuse a saved sample instead of re-streaming auth.txt")
+    ap.add_argument("--golden", type=Path,
+                    help="evaluate golden.jsonl (needs its .manifest.json beside it)")
     ap.add_argument("--disable-rules", default="",
                     help="comma-separated rule ids to switch off, e.g. RULE-015")
     args = ap.parse_args()
@@ -647,11 +708,34 @@ def main() -> int:
         args.auth, args.redteam = _self_test(tmp)
         args.benign_sample = min(args.benign_sample, 5000)
 
-    if not args.auth or not args.redteam:
-        ap.error("--auth and --redteam are required (or use --self-test)")
+    # --golden and --load-sample carry their own ground truth, so the raw
+    # corpus is not needed. Checked before the requirement, or the guard
+    # rejects a perfectly valid invocation.
+    if not (args.golden or args.load_sample) and (not args.auth or not args.redteam):
+        ap.error("--auth and --redteam are required "
+                 "(or use --golden, --load-sample, or --self-test)")
     for p in (args.auth, args.redteam):
-        if not p.exists():
+        if p is not None and not p.exists():
             ap.error(f"missing file: {p}\nDownload from https://csr.lanl.gov/data/cyber1/")
+
+    if args.golden:
+        if not args.golden.exists():
+            ap.error(f"no golden dataset at {args.golden}")
+        print(f"[+] loading {args.golden}", flush=True)
+        events, stats, manifest = load_golden(args.golden)
+        print(f"[+] {len(events):,} events "
+              f"({stats['malicious_total']} labelled attacks, "
+              f"true base rate {stats['true_base_rate']:.2e})", flush=True)
+        print(f"[+] dataset sha256 {manifest['sha256'][:16]}…", flush=True)
+        result = evaluate(events, stats, args.ai_budget, use_ai=not args.no_ai,
+                          disabled_rules=_disabled(args.disable_rules))
+        result["dataset"] = {"path": str(args.golden),
+                             "sha256": manifest["sha256"],
+                             "ground_truth": manifest.get("ground_truth")}
+        result["gates"] = apply_gates(result)
+        args.out.write_text(json.dumps(result, indent=1, default=str))
+        _report(result, stats, args.out)
+        return 0
 
     if args.load_sample:
         if not args.load_sample.exists():

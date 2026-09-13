@@ -130,6 +130,11 @@ def audit_case(case: dict[str, Any]) -> dict[str, Any] | None:
     verdict = inv.get("verdict") or {}
     if not verdict:
         return None
+    # A verdict produced by the deterministic veto never ran an investigation,
+    # so it has no yield to measure. Including it would score a rule as though
+    # it were reasoning and drag the metric down for the wrong reason.
+    if verdict.get("decided_by") == "deterministic_veto":
+        return None
     incident = case.get("incident") or {}
     brief = brief_text(incident)
     obs = observations_text(inv)

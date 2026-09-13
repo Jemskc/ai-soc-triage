@@ -173,3 +173,43 @@ def test_autopilot_escalates_a_parked_intrusion_rather_than_hiding_it():
     assert '"verdict": "ESCALATE"' in src
     # The question is still asked — escalating must not silence it.
     assert "question.asked" in src
+
+
+def test_veto_verdict_evidence_is_structured_and_labelled():
+    """A synthesised verdict must look like every other verdict.
+
+    Emitting the display strings verbatim ("process observed: psexesvc.exe")
+    made every citation unmatchable, so the audit tooling scored the safety fix
+    itself as fabricating evidence.
+    """
+    import inspect
+
+    import autopilot
+
+    src = inspect.getsource(autopilot.Autopilot._investigate_pending)
+    assert '"field": "detection"' in src
+    assert 'item.split(": ", 1)[-1]' in src
+    # And it must declare that a rule, not the agent, decided it.
+    assert '"decided_by": "deterministic_veto"' in src
+
+
+def test_yield_analysis_skips_deterministic_verdicts():
+    """Scoring a rule as though it were an investigation measures nothing."""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "ai-soc-eval" / "investigation_yield.py"
+    spec = importlib.util.spec_from_file_location("iy", path)
+    iy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(iy)
+
+    case = {
+        "incident": {"incident_id": "INC-1"},
+        "investigation": {
+            "steps": [], "step_count": 0,
+            "verdict": {"verdict": "ESCALATE", "decided_by": "deterministic_veto",
+                        "evidence": [{"field": "detection", "value": "psexesvc.exe",
+                                      "why": "process observed"}]},
+        },
+    }
+    assert iy.audit_case(case) is None
