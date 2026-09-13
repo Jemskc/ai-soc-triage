@@ -226,6 +226,97 @@ class Autopilot:
 
     # -- ingestion ---------------------------------------------------------
 
+    def reset(self) -> dict[str, Any]:
+        """Forget everything ingested and analysed.
+
+        Loading data was possible and unloading it was not, so the only way to
+        clear a corpus was to delete files on the server and restart — which
+        also meant an analyst could never be sure whether what they were
+        looking at came from the file they just imported or the one before it.
+
+        In-memory state and the published files are cleared together. Doing one
+        without the other leaves the dashboard reading a bundle the autopilot no
+        longer believes in.
+        """
+        from pipeline import ANALYSIS_PATH, CASES_PATH, EVENTS_PATH
+
+        with self._lock:
+            precedent = 0
+            try:
+                import json as _json
+                cm = Path(ANALYSIS_PATH).parent / "case_memory.json"
+                if cm.exists():
+                    blob = _json.loads(cm.read_text(encoding="utf-8"))
+                    precedent = len(blob if isinstance(blob, list)
+                                    else blob.get("cases", blob))
+            except Exception:  # noqa: BLE001
+                pass
+            before = {
+                "events": self.state.events_ingested,
+                "incidents": len(self._all_incidents),
+                "verdicts": len(self._verdicts),
+                "sources": len(self._sources),
+                "precedent_rulings": precedent,
+            }
+            # Drain anything still queued, or it repopulates immediately.
+            drained = 0
+            while not self.inbox.empty():
+                try:
+                    self.inbox.get_nowait()
+                    drained += 1
+                except Exception:  # noqa: BLE001
+                    break
+
+            self._pending = []
+            self._all_incidents = []
+            self._verdicts = {}
+            self._campaign = {}
+            self._sources = {}
+            self._last_df = None
+            self._memory = None      # reloaded empty on the next case
+            self._inventory = None if hasattr(self, "_inventory") else None
+            self._events_written = -1
+            self._events_written_at = 0.0
+            self._seen_files = set() if hasattr(self, "_seen_files") else set()
+
+            self.state.events_ingested = 0
+            self.state.incidents_total = 0
+            self.state.cases_analysed = 0
+            self.state.pending_cases = 0
+            self.state.queued_batches = 0
+            self.state.cycles = 0
+            self.state.stage = "idle"
+
+        # Everything derived from the ingested corpus, not just the obvious
+        # three. case_memory is the important one: it holds analyst-confirmed
+        # precedent that CHANGES how new incidents are judged, so leaving it
+        # behind makes the next "clean" run quietly not clean — the agent would
+        # be reasoning from rulings about a corpus that no longer exists.
+        out = Path(ANALYSIS_PATH).parent
+        for name in (
+            "analysis.json", "cases.json", "events.json", "questions.json",
+            "autopilot_state.json", "alerts.json",
+            "case_memory.json",       # precedent that steers future verdicts
+            "triage_cache.json",      # cached verdicts keyed by incident hash
+            "analyst_feedback.json",  # agree/disagree on incidents now gone
+            "approvals.json",         # decisions on actions now gone
+            "analysis.partial.json", "cases.partial.json",
+        ):
+            try:
+                (out / name).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        # Open questions belong to incidents that no longer exist.
+        try:
+            import questions as _q
+            _q.get_store().clear()
+        except Exception:  # noqa: BLE001
+            pass
+
+        self.bus.publish("reset", **before, drained_batches=drained)
+        return {"cleared": before, "drained_batches": drained}
+
     def sources(self) -> list[dict[str, Any]]:
         """What has been imported, newest activity first."""
         with self._lock:
@@ -317,7 +408,19 @@ class Autopilot:
             self._last_df = self._last_df.tail(MAX_RETAINED_EVENTS).reset_index(drop=True)
             self.bus.publish("events.trimmed", dropped=dropped,
                              retained=MAX_RETAINED_EVENTS)
-        # `df` deliberately stays the incoming batch. Funnelling the whole
+        # Give this batch globally unique row indices before the funnel runs.
+        #
+        # Each batch used to be indexed 0..N, so row 6 of batch five and row 6
+        # of batch one were indistinguishable afterwards. Nothing could join an
+        # alert back to the event that raised it across batches, which made
+        # scoring the pipeline against labelled data impossible — it reported
+        # 0 of 200 attacks caught on data measured elsewhere at 100% recall.
+        offset = len(self._last_df) - len(df)
+        df = df.set_index(pd.RangeIndex(offset, offset + len(df)))
+        self._last_df = self._last_df.set_index(
+            pd.RangeIndex(0, len(self._last_df)))
+
+        # `df` otherwise stays the incoming batch. Funnelling the whole
         # accumulated set each cycle would be quadratic and would re-derive
         # incidents already produced; only the log view needs the history.
         self.state.cycles += 1

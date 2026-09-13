@@ -22,7 +22,7 @@ const TOOL_LABEL = {
  */
 export default function LiveAgentActivity() {
   const { events, connected } = useLiveEvents();
-  const live = useLiveInvestigation(events);
+  const { current: live, finished } = useLiveInvestigation(events);
   const stats = useLiveStats(events);
 
   if (!connected && events.length === 0) {

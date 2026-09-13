@@ -159,7 +159,10 @@ export function AnalysisProvider({ children, fallbackLogs = null }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [status]);
+    // Re-fetched as verdicts land. Keyed only on `status` it ran once at page
+    // load, so the reasoning traces the AI produced afterwards never reached
+    // the UI and the AI Investigation tab stayed empty while the agent worked.
+  }, [status, Object.keys(bundle?.verdicts || {}).length]);
 
   const sendFeedback = useCallback(async (incidentId, agree, note = '') => {
     try {

@@ -1,6 +1,6 @@
 import { API_BASE as apiBase } from '../utils/api';
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Bot, Send, Loader, WifiOff, Sparkles } from 'lucide-react';
+import { Bot, Send, Loader, WifiOff, Sparkles, PanelRightClose } from 'lucide-react';
 import { NAV_ITEMS, NAV_LABELS } from '../data/navConfig';
 import { useAnalysis } from '../context/AnalysisContext';
 
@@ -335,6 +335,16 @@ export default function AIPanel({
   // assistant is asked about verdicts and reasoning far more than about raw
   // logs, and it could not see either.
   const { incidentsByUrgency, verdicts, cases } = useAnalysis();
+  // Remembered per browser: an analyst who closes the assistant does not
+  // want it back on every navigation.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('soc_ai_panel_collapsed') === '1'; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('soc_ai_panel_collapsed', collapsed ? '1' : '0'); }
+    catch { /* private window */ }
+  }, [collapsed]);
 
   const suggestions = SUGGESTED_BY_TAB[activeNav] || SUGGESTED_FALLBACK;
   // Used to decide whether an id in a reply is real enough to link.
@@ -430,7 +440,29 @@ export default function AIPanel({
   const isStreaming = messages.some(m => m.streaming);
 
   return (
-    <aside className="w-[320px] shrink-0 border-l border-border bg-panel flex flex-col overflow-hidden">
+    <aside className={`shrink-0 border-l border-border bg-panel flex flex-col overflow-hidden transition-all duration-200 ${
+      collapsed ? 'w-11' : 'w-[320px]'}`}>
+
+      {/* Collapsed: a spine that still shows the model is alive and reachable.
+          The assistant is context-aware, so hiding it entirely would lose the
+          one control that reopens it. */}
+      {collapsed && (
+        <button
+          onClick={() => setCollapsed(false)}
+          title="Open the AI assistant"
+          className="flex flex-col items-center gap-2 py-3 hover:bg-hover transition-colors h-full"
+        >
+          <Bot size={15} className="text-blue-400" />
+          {apiStatus === 'ok' && (
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+          )}
+          <span className="text-muted text-[9px] [writing-mode:vertical-rl] rotate-180 tracking-wider mt-1">
+            AI ASSISTANT
+          </span>
+        </button>
+      )}
+
+      {!collapsed && (<>
 
       {/* Header */}
       <div className="px-4 py-3 border-b border-border flex items-center gap-2">
@@ -450,6 +482,13 @@ export default function AIPanel({
             </>
           )}
           {apiStatus === 'unknown' && <Loader size={11} className="text-muted animate-spin" />}
+          <button
+            onClick={() => setCollapsed(true)}
+            title="Collapse the assistant"
+            className="ml-1 text-muted hover:text-primary transition-colors"
+          >
+            <PanelRightClose size={13} />
+          </button>
         </div>
       </div>
 
@@ -521,7 +560,7 @@ export default function AIPanel({
           </button>
         </div>
       </div>
-
+      </>)}
     </aside>
   );
 }

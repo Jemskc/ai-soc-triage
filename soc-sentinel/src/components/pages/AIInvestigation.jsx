@@ -168,7 +168,7 @@ function Reasoning({ caseFile }) {
 export default function AIInvestigation({ selectedId, onSelect }) {
   const { cases, incidentsByUrgency, isReady } = useAnalysis();
   const { events } = useLiveEvents();
-  const live = useLiveInvestigation(events);
+  const { current: live, finished } = useLiveInvestigation(events);
 
   const investigated = incidentsByUrgency.filter(i => cases?.[i.incident_id]?.investigation);
   const current = selectedId && cases?.[selectedId]

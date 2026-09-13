@@ -327,3 +327,30 @@ def test_log_rows_fall_back_rather_than_showing_nothing():
     assert row["ingestSource"] == "evtx-sample"
     bare = pipeline._to_log_row({"timestamp": "x", "event_id": "4624"}, 0, None)
     assert bare["ingestSource"] == "unknown"
+
+
+# ── an alert must be joinable to the event that raised it ────────────────────
+# Batches were each indexed 0..N, so row 6 of batch five and row 6 of batch one
+# were indistinguishable. Nothing could ask afterwards whether a given event was
+# detected, which made scoring against labelled data impossible: 0 of 200
+# attacks "caught" on data measured elsewhere at 100% recall.
+
+def test_batches_get_globally_unique_row_indices():
+    import inspect
+
+    import autopilot
+
+    src = inspect.getsource(autopilot.Autopilot._run_cycle)
+    assert "RangeIndex(offset" in src, (
+        "each batch must be offset into a global index space")
+
+
+def test_published_events_expose_the_row_index():
+    import pipeline
+
+    row = pipeline._to_log_row({"timestamp": "x", "event_id": "4624"}, 0, None)
+    # _to_log_row itself does not set it; build_event_rows does, from the
+    # dataframe index. Guard that the field is populated there.
+    src = __import__("inspect").getsource(pipeline.build_event_rows)
+    assert '"rowIndex"' in src
+    assert "int(idx)" in src

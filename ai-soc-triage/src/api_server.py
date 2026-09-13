@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -868,6 +868,28 @@ def get_incident(incident_id: str):
     return {"error": f"unknown incident {incident_id}"}
 
 
+class ResetRequest(BaseModel):
+    # Deliberately required and deliberately not defaulted. Clearing the corpus
+    # discards every verdict and every open question, so it should not be
+    # possible to trigger by an accidental POST.
+    confirm: bool = False
+
+
+@app.post("/reset")
+def reset_everything(req: ResetRequest):
+    """Clear all ingested logs, incidents, verdicts and questions."""
+    if not req.confirm:
+        return {
+            "error": "refused",
+            "why": ("This discards every ingested event, incident, verdict and "
+                    "open question. Send {\"confirm\": true} if that is what "
+                    "you want."),
+        }
+    pilot = _autopilot.get_autopilot(engine_factory=_engine_factory)
+    result = pilot.reset()
+    return {"ok": True, **result}
+
+
 @app.get("/sources")
 def list_sources():
     """Every log file or feed that has been imported, with its event count.
@@ -1175,8 +1197,29 @@ def _mount_dashboard() -> None:
 
     app.mount("/assets", _StaticFiles(directory=_UI_DIST / "assets"), name="assets")
 
-    @app.get("/{full_path:path}", include_in_schema=False)
-    def _spa(full_path: str):
+    # Registered for every method, not just GET.
+    #
+    # As a GET-only route, a POST to an endpoint that does not exist matched
+    # the path but not the method, so FastAPI answered 405 Method Not Allowed.
+    # That is a misleading error: it says "wrong verb on a real endpoint" and
+    # sends the caller looking at their request rather than at the fact that
+    # the route is missing — which is exactly what happened when a client
+    # called POST /reset against a server that predated it.
+    @app.api_route("/{full_path:path}", include_in_schema=False,
+                   methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    def _spa(full_path: str, request: Request):
+        from fastapi.responses import JSONResponse as _JSON
+
+        # Only GET can be a page request. Anything else reaching here is a call
+        # to an API route that does not exist, and should say so.
+        if request.method != "GET":
+            return _JSON(
+                {"error": "no such endpoint",
+                 "path": f"/{full_path}",
+                 "method": request.method},
+                status_code=404,
+            )
+
         # A real file if there is one (favicon, sample data), otherwise
         # index.html so client-side routes survive a page refresh.
         candidate = (_UI_DIST / full_path).resolve()
@@ -1570,6 +1613,62 @@ def audit_one(incident_id: str):
         if entry["incident_id"] == incident_id:
             return entry
     return {"error": f"no audit record for {incident_id}"}
+
+
+@app.get("/scorecard/live")
+def live_scorecard():
+    """How well the two layers did on the data that was actually imported.
+
+    Distinct from /scorecard, which scores against the bundled EVTX corpus
+    regardless of what was ingested — after importing a real file that grades
+    the wrong exam.
+    """
+    import live_scorecard as _ls
+
+    bundle = _load_bundle() or {}
+    incidents = bundle.get("incidents", [])
+    verdicts = bundle.get("verdicts", {})
+
+    events = []
+    path = _pipeline.EVENTS_PATH
+    if path.exists():
+        try:
+            events = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            events = []
+    if not events:
+        return {"error": "nothing ingested yet"}
+
+    # Span of the imported data, for a per-day figure that means something.
+    stamps = [str(e.get("timestamp") or "") for e in events if e.get("timestamp")]
+    span_days = 1.0
+    if len(stamps) > 1:
+        try:
+            import pandas as _pd
+            parsed = _pd.to_datetime(_pd.Series(stamps), errors="coerce").dropna()
+            if len(parsed) > 1:
+                span_days = max(
+                    (parsed.max() - parsed.min()).total_seconds() / 86400, 1e-6)
+        except Exception:  # noqa: BLE001
+            pass
+
+    return _ls.score(events, incidents, verdicts, span_days=span_days,
+                     base_rate=_GOLDEN_BASE_RATE)
+
+
+# The true prevalence of the LANL corpus, used to correct sample precision when
+# that data is loaded. Read from the dataset's own manifest rather than
+# hardcoded, so it cannot drift from the file it describes.
+def _read_golden_base_rate() -> float | None:
+    manifest = (_Path(__file__).resolve().parents[2]
+                / "ai-soc-eval" / "golden.manifest.json")
+    try:
+        return json.loads(manifest.read_text())["corpus"]["true_base_rate"]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+_GOLDEN_BASE_RATE = _read_golden_base_rate()
 
 
 @app.get("/scorecard")

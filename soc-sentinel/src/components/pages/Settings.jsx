@@ -1,6 +1,9 @@
+import ClearData from '../ClearData';
 export default function Settings({ fileInfo, onImport }) {
   return (
     <div className="animate-fadeIn space-y-4">
+      <ClearData />
+
       <div className="bg-card border border-border rounded-lg p-4">
         <h3 className="text-primary text-sm font-medium mb-3">Active Log Sources</h3>
         <table className="w-full text-xs">

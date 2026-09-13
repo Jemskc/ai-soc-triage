@@ -75,22 +75,47 @@ export function useLiveEvents({ enabled = true } = {}) {
 /** Derive the live view of what the agent is doing right now. */
 export function useLiveInvestigation(events) {
   let current = null;
-  const steps = [];
+  let steps = [];
+  // Finished investigations used to be discarded the instant they completed,
+  // so an analyst watching the agent work saw a trace build up and then
+  // vanish, replaced by the next one. The reasoning that produced a verdict is
+  // the most useful thing on the screen; it should not disappear at the moment
+  // it becomes conclusive.
+  const finished = [];
 
   for (const e of events) {
     if (e.kind === 'investigation.started') {
       current = { incidentId: e.incident_id, hosts: e.hosts || [] };
-      steps.length = 0;
+      steps = [];
     } else if (e.kind === 'investigation.step' && current) {
-      steps.push({
-        step: e.step, tool: e.tool, thought: e.thought, args: e.args,
-      });
-    } else if (e.kind === 'case.analysed' && current?.incidentId === e.incident_id) {
-      current = null;
-      steps.length = 0;
+      steps.push({ step: e.step, tool: e.tool, thought: e.thought, args: e.args });
+    } else if (e.kind === 'case.analysed') {
+      if (current?.incidentId === e.incident_id) {
+        finished.unshift({
+          ...current,
+          steps: [...steps],
+          verdict: e.verdict,
+          risk: e.risk?.risk_score,
+          band: e.risk?.band,
+          autonomy: e.autonomy,
+          at: e.at,
+        });
+        current = null;
+        steps = [];
+      } else {
+        // Completed without a start event in this window — still worth listing.
+        finished.unshift({
+          incidentId: e.incident_id, hosts: [], steps: [],
+          verdict: e.verdict, risk: e.risk?.risk_score,
+          band: e.risk?.band, autonomy: e.autonomy, at: e.at,
+        });
+      }
     }
   }
-  return current ? { ...current, steps: [...steps] } : null;
+  return {
+    current: current ? { ...current, steps: [...steps] } : null,
+    finished: finished.slice(0, 12),
+  };
 }
 
 /** Rolling funnel/queue counters from the same stream. */

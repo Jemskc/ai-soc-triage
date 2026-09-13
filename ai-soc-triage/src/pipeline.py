@@ -541,7 +541,12 @@ def build_event_rows(df: pd.DataFrame, incidents: list[dict[str, Any]]) -> list[
 
     rows: list[dict[str, Any]] = []
     for position, (idx, row) in enumerate(df.iterrows()):
-        rows.append(_to_log_row(row.to_dict(), position, alerts_by_index.get(idx)))
+        entry = _to_log_row(row.to_dict(), position, alerts_by_index.get(idx))
+        # The dataframe index, not the display position. An alert records the
+        # index of the row that raised it, so without this there is no way to
+        # ask afterwards whether a given event was detected.
+        entry["rowIndex"] = int(idx) if isinstance(idx, (int,)) else None
+        rows.append(entry)
         if MAX_PUBLISHED_EVENTS and len(rows) >= MAX_PUBLISHED_EVENTS:
             break
     return rows

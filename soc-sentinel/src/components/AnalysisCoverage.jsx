@@ -13,7 +13,7 @@ import { useAnalysis } from '../context/AnalysisContext';
  * So the chain is shown end to end, including the part that was NOT
  * investigated, in words someone with no security background can follow.
  */
-export default function AnalysisCoverage({ compact = false }) {
+export default function AnalysisCoverage({ compact = false, onOpen = null }) {
   const { metrics, bundle, incidents, verdicts, eventTotal, isReady } = useAnalysis();
   if (!isReady) return null;
 
@@ -24,14 +24,23 @@ export default function AnalysisCoverage({ compact = false }) {
   const notInvestigated = Math.max(0, incidentCount - investigated);
 
   if (compact) {
+    // The compact line states how little of the estate the AI actually read.
+    // That claim invites the obvious follow-up — which ones, and what about
+    // the rest — so it opens the full breakdown rather than sitting inert.
     return (
-      <span className="inline-flex items-center gap-1.5 text-[10px]">
+      <button
+        type="button"
+        onClick={() => onOpen?.()}
+        title={onOpen ? 'See what was and was not analysed' : undefined}
+        className={`inline-flex items-center gap-1.5 text-[10px] rounded px-1 py-0.5 transition-colors ${
+          onOpen ? 'hover:bg-hover cursor-pointer' : 'cursor-default'}`}
+      >
         <Eye size={11} className="text-blue-400" />
         <span className="text-muted">
           AI reviewed <span className="text-primary font-medium">{investigated}</span> of{' '}
           {incidentCount} incidents from {totalEvents.toLocaleString()} logs
         </span>
-      </span>
+      </button>
     );
   }
 

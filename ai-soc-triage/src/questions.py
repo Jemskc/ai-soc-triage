@@ -152,6 +152,18 @@ class QuestionStore:
 
     # -- reading -----------------------------------------------------------
 
+    def clear(self) -> int:
+        """Drop every question.
+
+        Called when the corpus is reset: a question is always about a specific
+        incident, and once those incidents are gone the question is unanswerable
+        and its answer would resume an investigation that no longer exists.
+        """
+        n = len(self.questions)
+        self.questions = {}
+        self.save()
+        return n
+
     def waiting(self) -> list[Question]:
         return sorted(
             (q for q in self.questions.values() if q.status == "waiting"),

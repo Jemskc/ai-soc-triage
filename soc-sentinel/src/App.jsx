@@ -23,6 +23,7 @@ import { api } from './utils/api';
 import AISituationReport from './components/overview/AISituationReport';
 import AnalysisCoverage from './components/AnalysisCoverage';
 import LiveAgentActivity from './components/LiveAgentActivity';
+import QueueStatus from './components/QueueStatus';
 import LiveLogs from './components/pages/LiveLogs';
 import EmailAnalysis from './pages/EmailAnalysis';
 import AIInvestigation from './components/pages/AIInvestigation';
@@ -246,7 +247,6 @@ function Dashboard() {
       case 'alerts':
         return (
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <LiveAgentActivity />
             <AISituationReport onSelectIncident={jumpToIncident} />
             <AnalysisCoverage />
             <AlertsPage
@@ -260,7 +260,12 @@ function Dashboard() {
 
       case 'ai':
         return (
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {/* The live step feed belongs beside the reasoning it is producing.
+                It was on the Alerts tab, so the steps appeared under the alert
+                list while the tab named "AI Investigation" showed nothing. */}
+            <QueueStatus onOpenQuestions={() => setActiveNav('response')} />
+            <LiveAgentActivity />
             <AIInvestigation
               selectedId={focusedIncident}
               onSelect={setFocusedIncident}
@@ -326,7 +331,10 @@ function Dashboard() {
           bundled demo data. Mock output must never read as real. */}
       <div className="flex items-center gap-2 px-4 py-1 border-b border-border bg-panel">
         <DataSourceBadge />
-        <AnalystQuestions compact />
+        {/* Both of these make a claim the reader will want to follow up, so
+            both navigate to the view that answers it. */}
+        <AnalysisCoverage compact onOpen={() => setActiveNav('alerts')} />
+        <AnalystQuestions compact onOpen={() => setActiveNav('response')} />
       </div>
 
       <div className="flex flex-1 overflow-hidden">

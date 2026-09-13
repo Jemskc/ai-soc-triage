@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { MessageCircleQuestion, Send, Clock, CheckCircle2, HelpCircle } from 'lucide-react';
+import { MessageCircleQuestion, Send, Clock, CheckCircle2, HelpCircle, ArrowRight } from 'lucide-react';
 import { api } from '../../utils/api';
 
 function since(seconds) {
@@ -94,7 +94,7 @@ function QuestionCard({ q, onAnswered }) {
  * the queue this system exists to remove. Often one fact a human holds and the
  * telemetry cannot — was this change window approved? — unblocks the case.
  */
-export default function AnalystQuestions({ compact = false }) {
+export default function AnalystQuestions({ compact = false, onOpen = null }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
@@ -116,13 +116,22 @@ export default function AnalystQuestions({ compact = false }) {
 
   if (compact) {
     if (!waiting.length) return null;
+    // A badge announcing that the agent is blocked on you, which you cannot
+    // click, is an accusation rather than a prompt. It goes to the view that
+    // can actually answer it.
+    const label = `${waiting.length} question${waiting.length === 1 ? '' : 's'} for you`;
     return (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-amber-500/40 bg-amber-500/10">
+      <button
+        type="button"
+        onClick={() => onOpen?.()}
+        title={onOpen ? 'Open the questions waiting on you' : label}
+        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 transition-colors ${
+          onOpen ? 'hover:bg-amber-500/20 cursor-pointer' : 'cursor-default'}`}
+      >
         <MessageCircleQuestion size={11} className="text-amber-400" />
-        <span className="text-amber-300 text-[10px] font-semibold">
-          {waiting.length} question{waiting.length === 1 ? '' : 's'} for you
-        </span>
-      </span>
+        <span className="text-amber-300 text-[10px] font-semibold">{label}</span>
+        {onOpen && <ArrowRight size={10} className="text-amber-400/70" />}
+      </button>
     );
   }
 

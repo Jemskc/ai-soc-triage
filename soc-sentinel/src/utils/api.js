@@ -112,6 +112,13 @@ export const api = {
 
   // What has been imported, so the analyst can scope to one file.
   sources: () => request('/sources'),
+  autopilotStatus: () => request('/autopilot/status'),
+
+  // Clear everything ingested. Requires explicit confirmation server-side too,
+  // so an accidental call cannot discard an analyst's work.
+  resetAll: () => request('/reset', {
+    method: 'POST', body: JSON.stringify({ confirm: true }),
+  }),
 
   incidents: () => request('/incidents'),
   incident: (id) => request(`/incidents/${id}`),
