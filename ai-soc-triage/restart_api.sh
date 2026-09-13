@@ -39,7 +39,10 @@ fi
 
 export HF_HOME=/work/aiw642/hf_cache
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1}
-export SOC_API_KEY=${SOC_API_KEY:-$(cat "$(dirname "$0")/output/.api_key" 2>/dev/null)}
+# Authentication is opt-in. It exists (and is required the moment SOC_API_KEY
+# is set) but forcing it on a local dashboard bought nothing and locked the
+# analyst out of their own data. Set SOC_API_KEY in the environment to enable.
+export SOC_API_KEY=${SOC_API_KEY:-}
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 nohup /work/aiw642/conda_envs/falcon3-7b/bin/python -m uvicorn src.api_server:app \
   --host 0.0.0.0 --port 8000 > output/server.log 2>&1 &

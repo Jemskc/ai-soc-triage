@@ -56,10 +56,16 @@ async def lifespan(app: FastAPI):
     pilot.start(watch_inbox=True)
     print(f"[+] Autopilot running — watching {_ap.INBOX_DIR}", flush=True)
 
-    # Feed the resident telemetry in automatically. The whole point is that
-    # analysis happens because logs exist, not because someone pressed a
-    # button, so the system must not sit idle waiting to be told to start.
+    # Seeding the bundled demo corpus at boot is opt-in.
+    #
+    # It used to always run, so the dashboard came up showing 81 incidents and
+    # dozens of alerts derived from a corpus the analyst never loaded. Someone
+    # who imports their own logs then cannot tell their findings from the demo
+    # data underneath, which makes every number on screen untrustworthy. Set
+    # SOC_SEED_DEMO=1 to get the old behaviour.
     import threading as _th
+
+    seed_demo = os.environ.get("SOC_SEED_DEMO", "").strip() in ("1", "true", "yes")
 
     def _seed() -> None:
         try:
@@ -70,10 +76,16 @@ async def lifespan(app: FastAPI):
         except Exception as exc:  # noqa: BLE001 — seeding must never block boot
             print(f"[!] Auto-ingest skipped: {exc}", flush=True)
 
-    _th.Thread(target=_seed, daemon=True).start()
+    if seed_demo:
+        _th.Thread(target=_seed, daemon=True).start()
+    else:
+        print("[+] No demo corpus seeded — the dashboard shows what you ingest. "
+              "Set SOC_SEED_DEMO=1 to preload the bundled EVTX sample.", flush=True)
 
     yield
 
+    # Must run on every path. An earlier version returned early when seeding
+    # was off and skipped this, leaking the autopilot thread on shutdown.
     pilot.stop()
 
 
