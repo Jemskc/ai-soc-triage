@@ -1,91 +1,236 @@
 import { API_BASE as apiBase } from '../utils/api';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Bot, Send, Loader, WifiOff, Sparkles } from 'lucide-react';
 import { NAV_ITEMS, NAV_LABELS } from '../data/navConfig';
+import { useAnalysis } from '../context/AnalysisContext';
 
 const API_URL = apiBase;
 
-const SUGGESTED = [
-  'What are signs of a brute force attack?',
-  'Explain MITRE ATT&CK T1110',
-  'How do I investigate a suspicious login?',
-  'What does SPF, DKIM, DMARC mean?',
+// Openers per tab. A generic prompt list on the Evidence Graph invites a
+// generic answer; these ask about what is on the screen.
+const SUGGESTED_BY_TAB = {
+  logs: [
+    'What am I looking at on this tab?',
+    'Which hosts and accounts are noisiest, and is that normal?',
+    'Why did only a few of these events become alerts?',
+  ],
+  alerts: [
+    'Explain the top incident and why it ranks first',
+    'How was this queue ordered?',
+    'Which of these would you work first, and why?',
+  ],
+  ai: [
+    'Walk me through how the agent reached this verdict',
+    'Which tools did it call, and what came back?',
+    'What evidence would change this verdict?',
+  ],
+  evidence: [
+    'What connects these entities?',
+    'Which link matters most here?',
+    'Does anything here appear in other incidents?',
+  ],
+  response: [
+    'Why does this action need my approval?',
+    'What would happen if I approved all of these?',
+    'What is the autonomy band based on?',
+  ],
+  email: [
+    'Is this email phishing, and what is the evidence?',
+    'What do the SPF, DKIM and DMARC results mean here?',
+    'Did anything happen on the endpoint after this email?',
+  ],
+  settings: [
+    'Which detection rules are earning their noise?',
+    'What has the AI not checked?',
+  ],
+};
+
+const SUGGESTED_FALLBACK = [
+  'What am I looking at on this tab?',
+  'What has the AI checked, and what has it not?',
+  'Which incident should I work first?',
 ];
 
 // Automatically derived from navConfig — no manual updates ever needed
 const ALL_TABS = NAV_ITEMS.map(t => t.label).join(', ');
 
-function buildDashboardContext(logs, activeNav, selectedAlert) {
+/**
+ * What the analyst is looking at, in words the model can use.
+ *
+ * The previous version branched on 'overview', 'investigations' and 'hunting'
+ * — three tabs that no longer exist after the restructure — and had no branch
+ * at all for AI Investigation, Evidence Graph, Response or Phishing. So on
+ * exactly the screens where a question is most likely ("why did it decide
+ * that?") the assistant had nothing but raw log counts.
+ *
+ * It also only ever saw the log array. The verdicts, the reasoning traces and
+ * the risk scoring — everything the analyst is actually asking about — were
+ * never sent.
+ */
+function buildDashboardContext({
+  logs, activeNav, selectedAlert, incidents, verdicts, cases, focusedIncident,
+}) {
   const lines = [];
-  lines.push(`Dashboard tabs: ${ALL_TABS}`);
-  lines.push(`Active tab: ${NAV_LABELS[activeNav] || activeNav}`);
+  const L = (t) => lines.push(t);
 
-  if (!logs || logs.length === 0) {
-    lines.push('No log data loaded.');
-    return lines.join('\n');
+  L(`Dashboard tabs: ${ALL_TABS}`);
+  L(`Active tab: ${NAV_LABELS[activeNav] || activeNav}`);
+
+  // ── the analysis, which is what most questions are about ────────────────
+  const incs = incidents || [];
+  const vs = verdicts || {};
+  if (incs.length) {
+    const mix = {};
+    let grounded = 0, ungrounded = 0;
+    Object.values(vs).forEach(v => {
+      const call = String(v?.payload?.verdict || '').toUpperCase();
+      if (call) mix[call] = (mix[call] || 0) + 1;
+      grounded += (v?.knowledge_used || v?.grounded_in || []).length;
+      ungrounded += (v?.ungrounded_techniques || v?.ungrounded_citations || []).length;
+    });
+    L(`AI analysis: ${Object.keys(vs).length} of ${incs.length} incidents have a verdict` +
+      (Object.keys(mix).length ? ` — ${Object.entries(mix).map(([k, n]) => `${k}: ${n}`).join(', ')}` : ''));
+    if (grounded || ungrounded) {
+      L(`Grounding: ${grounded} citations from the knowledge base, ${ungrounded} ungrounded.`);
+    }
+    if (Object.keys(vs).length < incs.length) {
+      L(`${incs.length - Object.keys(vs).length} incidents are still queued — the AI has not read them yet.`);
+    }
+  } else {
+    L('No incidents have been correlated yet.');
   }
 
-  // ── Global summary ──────────────────────────────────────────────────────
-  const bySev = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
-  const ruleCounts = {}, ipCounts = {}, userCounts = {}, hostCounts = {};
+  // ── whichever incident the AI / Evidence / Response tabs are focused on ──
+  const current = focusedIncident
+    ? incs.find(i => i.incident_id === focusedIncident)
+    : incs[0];
+  const record = current ? vs[current.incident_id] : null;
+  const payload = record?.payload;
+  const caseFile = current ? cases?.[current.incident_id] : null;
 
-  logs.forEach(l => {
-    if (bySev[l.severity] !== undefined) bySev[l.severity]++;
-    if (l.rule)     ruleCounts[l.rule]     = (ruleCounts[l.rule]     || 0) + 1;
-    if (l.sourceIP && l.sourceIP !== 'Unknown') ipCounts[l.sourceIP] = (ipCounts[l.sourceIP] || 0) + 1;
-    if (l.user     && l.user     !== 'Unknown') userCounts[l.user]   = (userCounts[l.user]   || 0) + 1;
-    if (l.host     && l.host     !== 'Unknown') hostCounts[l.host]   = (hostCounts[l.host]   || 0) + 1;
-  });
-
-  const top = (obj, n = 5) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n);
-
-  lines.push(
-    `Total events: ${logs.length.toLocaleString()} — ` +
-    `Critical: ${bySev.CRITICAL}, High: ${bySev.HIGH}, Medium: ${bySev.MEDIUM}, Low: ${bySev.LOW}`
-  );
-
-  const topRules = top(ruleCounts);
-  if (topRules.length) lines.push(`Top triggered rules: ${topRules.map(([r, c]) => `"${r}" (${c}x)`).join(', ')}`);
-
-  const topIPs = top(ipCounts);
-  if (topIPs.length) lines.push(`Most active attacker IPs: ${topIPs.map(([ip, c]) => `${ip} (${c} events)`).join(', ')}`);
-
-  const topUsers = top(userCounts, 3);
-  if (topUsers.length) lines.push(`Most targeted users: ${topUsers.map(([u, c]) => `${u} (${c} events)`).join(', ')}`);
-
-  const topHosts = top(hostCounts, 3);
-  if (topHosts.length) lines.push(`Most targeted hosts: ${topHosts.map(([h, c]) => `${h} (${c} events)`).join(', ')}`);
-
-  // ── Active tab deep context ─────────────────────────────────────────────
-  if (activeNav === 'alerts' || activeNav === 'overview') {
-    const critical = logs.filter(l => l.severity === 'CRITICAL').slice(0, 3);
-    if (critical.length) {
-      lines.push('Top critical alerts right now:');
-      critical.forEach(a => lines.push(`  • [${a.rule}] ${a.sourceIP} → ${a.user} on ${a.host}`));
+  function describeIncident(tag) {
+    if (!current) return;
+    L(`${tag}: ${current.incident_id}`);
+    L(`  hosts: ${(current.hosts || []).join(', ') || 'none'} | accounts: ${(current.users || []).join(', ') || 'none'}`);
+    L(`  rules fired: ${(current.rules_fired || []).map(r => `${r.rule} (${r.count}x)`).join(', ') || 'none'}`);
+    L(`  processes: ${(current.processes || []).map(x => String(x).split('\\').pop()).slice(0, 8).join(', ') || 'none'}`);
+    L(`  events: ${current.alert_count}, first seen ${String(current.first_seen).slice(0, 19)}`);
+    if (payload) {
+      L(`  AI verdict: ${payload.verdict} at ${payload.confidence} confidence, urgency ${payload.urgency_score}`);
+      if (payload.analyst_summary) L(`  AI summary: ${payload.analyst_summary}`);
+      if (payload.mitre_technique) L(`  technique: ${payload.mitre_technique}`);
+    } else {
+      L('  This incident has no AI verdict yet.');
+    }
+    // Titles, not bare ids. Given `attack:T1021.002, attack:T1003` and two
+    // rule names, the model paired them the wrong way round and told the
+    // analyst Mimikatz was T1021.002. It had no way to know which was which,
+    // so the mapping has to be stated rather than inferred.
+    const src = record?.knowledge_used || record?.grounded_in || [];
+    if (src.length) {
+      L('  grounded in:');
+      src.forEach(k => L(`    ${k.id}${k.title ? ` — ${k.title}` : ''}`));
     }
   }
 
-  if (activeNav === 'investigations' && selectedAlert) {
-    const related = logs.filter(l =>
-      l.sourceIP === selectedAlert.sourceIP || l.user === selectedAlert.user
-    ).slice(0, 5);
-    lines.push(`Investigation focus: [${selectedAlert.severity}] ${selectedAlert.rule}`);
-    if (related.length > 1) lines.push(`Related events from same IP/user: ${related.length}`);
-  }
+  switch (activeNav) {
+    case 'logs': {
+      const rows = logs || [];
+      const bySev = {};
+      const ruleCounts = {}, hostCounts = {}, userCounts = {};
+      rows.forEach(l => {
+        if (l.severity) bySev[l.severity] = (bySev[l.severity] || 0) + 1;
+        if (l.rule) ruleCounts[l.rule] = (ruleCounts[l.rule] || 0) + 1;
+        if (l.host && l.host !== 'Unknown') hostCounts[l.host] = (hostCounts[l.host] || 0) + 1;
+        if (l.user && l.user !== 'Unknown') userCounts[l.user] = (userCounts[l.user] || 0) + 1;
+      });
+      const top = (o, n = 5) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n);
+      L(`Log view: ${rows.length.toLocaleString()} events loaded — ` +
+        Object.entries(bySev).map(([k, n]) => `${k}: ${n}`).join(', '));
+      if (top(ruleCounts).length) L(`Top rules: ${top(ruleCounts).map(([r, c]) => `"${r}" (${c}x)`).join(', ')}`);
+      if (top(hostCounts, 3).length) L(`Busiest hosts: ${top(hostCounts, 3).map(([h, c]) => `${h} (${c})`).join(', ')}`);
+      if (top(userCounts, 3).length) L(`Busiest accounts: ${top(userCounts, 3).map(([u, c]) => `${u} (${c})`).join(', ')}`);
+      L('These are raw parsed events; only a small fraction ever reach the AI, by design.');
+      break;
+    }
 
-  if (activeNav === 'hunting') {
-    const uniqueIPs   = new Set(logs.map(l => l.sourceIP).filter(ip => ip && ip !== 'Unknown')).size;
-    const uniqueUsers = new Set(logs.map(l => l.user).filter(u => u && u !== 'Unknown')).size;
-    lines.push(`Threat hunting scope: ${uniqueIPs} unique source IPs, ${uniqueUsers} unique users`);
-  }
+    case 'alerts': {
+      const ranked = incs
+        .map(i => ({ i, p: vs[i.incident_id]?.payload }))
+        .sort((a, b) => (b.p?.urgency_score ?? -1) - (a.p?.urgency_score ?? -1))
+        .slice(0, 6);
+      if (ranked.length) {
+        L('Incident queue, highest AI urgency first:');
+        ranked.forEach(({ i, p }) => L(
+          `  ${i.incident_id} — ${p ? `${p.verdict} urgency ${p.urgency_score}` : 'no verdict yet'}` +
+          ` | ${(i.hosts || []).join(',')} | ${(i.rules_fired || []).map(r => r.rule).slice(0, 2).join(', ')}`
+        ));
+      }
+      if (selectedAlert) L(`Selected: ${selectedAlert.incident_id || selectedAlert.rule}`);
+      break;
+    }
 
-  // ── Selected alert ──────────────────────────────────────────────────────
-  if (selectedAlert) {
-    lines.push(
-      `Selected alert: [${selectedAlert.severity}] ${selectedAlert.rule} | ` +
-      `IP: ${selectedAlert.sourceIP} | User: ${selectedAlert.user} | Host: ${selectedAlert.host} | ` +
-      `Message: ${(selectedAlert.message || '').slice(0, 100)}`
-    );
+    case 'ai': {
+      describeIncident('Reasoning trace shown for');
+      const inv = caseFile?.investigation;
+      if (inv) {
+        L(`  the agent took ${inv.step_count} steps in ${inv.elapsed_seconds}s, ${inv.model_calls} model calls`);
+        if (inv.stopped_reason) L(`  stopped because: ${inv.stopped_reason}`);
+        const tools = (inv.steps || []).map(st => st.tool).filter(Boolean);
+        if (tools.length) L(`  tools it called, in order: ${tools.join(' -> ')}`);
+        if (inv.awaiting_human) L('  this case is PARKED waiting on an analyst answer');
+      } else {
+        L('  no stored reasoning trace for this incident');
+      }
+      const risk = record?.risk || caseFile?.risk;
+      if (risk) L(`  fused risk ${risk.risk_score} (${risk.band}) — deterministic, not a model call`);
+      break;
+    }
+
+    case 'evidence': {
+      describeIncident('Graph shown for');
+      // Shared entities are the whole point of this tab.
+      const shared = [];
+      const seen = new Map();
+      incs.forEach(i => {
+        [...(i.hosts || []).map(v => ['host', v]),
+         ...(i.users || []).map(v => ['account', v])].forEach(([k, v]) => {
+          const key = `${k}:${v}`;
+          const e = seen.get(key) || { k, v, n: 0 };
+          e.n += 1; seen.set(key, e);
+        });
+      });
+      seen.forEach(e => { if (e.n > 1) shared.push(`${e.k} ${e.v} (in ${e.n} incidents)`); });
+      if (shared.length) L(`Entities spanning several incidents: ${shared.slice(0, 8).join('; ')}`);
+      else L('No entity appears in more than one incident.');
+      break;
+    }
+
+    case 'response': {
+      describeIncident('Response plan for');
+      const plan = caseFile?.agents?.response?.findings?.[0]?.data;
+      if (plan?.actions?.length) {
+        L('Proposed actions:');
+        plan.actions.forEach(a => L(`  - ${typeof a === 'string' ? a : JSON.stringify(a)}`));
+      }
+      const auto = caseFile?.autonomy;
+      if (auto) {
+        L(`Autonomy band: ${auto.band}; approval required: ${auto.requires_approval}`);
+        if (auto.reasons?.length) L(`  because: ${auto.reasons.join('; ')}`);
+      }
+      break;
+    }
+
+    case 'email':
+      L('Phishing tab: emails are assessed through the email contract, with ATT&CK retrieval and a grounding check.');
+      break;
+
+    case 'settings':
+      L('Settings: ingestion, detection-rule metrics, analyst questions and the decision audit trail.');
+      break;
+
+    default:
+      break;
   }
 
   return lines.join('\n');
@@ -119,7 +264,45 @@ async function streamAPI(body, onToken, onDone) {
 }
 
 // ── Message bubble ────────────────────────────────────────────────────────────
-function Message({ msg }) {
+/**
+ * Turns incident ids in the reply into buttons that jump to that incident.
+ *
+ * The assistant is told to cite INC- ids precisely so the analyst can act on
+ * an answer instead of copying an id and hunting for it by hand — an answer
+ * you cannot navigate from is a paragraph, not a tool.
+ */
+// Two regexes on purpose. A /g regex carries lastIndex between calls, so
+// reusing one for both split() and test() makes the test alternate true/false
+// on identical input — an intermittent bug that renders some ids as links and
+// others as plain text at random.
+const INCIDENT_SPLIT_RE = /(INC-[0-9A-F]{6,})/g;
+const INCIDENT_MATCH_RE = /^INC-[0-9A-F]{6,}$/;
+
+function linkifyIncidents(text, onSelectIncident, known) {
+  if (!text) return text;
+  const parts = String(text).split(INCIDENT_SPLIT_RE);
+  if (parts.length === 1) return text;
+  return parts.map((part, i) => {
+    if (!INCIDENT_MATCH_RE.test(part)) return part;
+    // Only offer a link for an incident that exists; a hallucinated id must
+    // not look navigable.
+    if (!known?.has(part)) {
+      return <span key={i} className="font-mono text-muted">{part}</span>;
+    }
+    return (
+      <button
+        key={i}
+        onClick={() => onSelectIncident?.(part)}
+        className="font-mono text-blue-400 underline decoration-dotted underline-offset-2 hover:text-blue-300"
+        title="Open this incident"
+      >
+        {part}
+      </button>
+    );
+  });
+}
+
+function Message({ msg, onSelectIncident, knownIncidents }) {
   const isUser = msg.role === 'user';
   return (
     <div className={`flex gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -131,7 +314,10 @@ function Message({ msg }) {
       <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap ${
         isUser ? 'bg-blue-600 text-white' : 'bg-panel text-primary border border-border'
       }`}>
-        {msg.content || (msg.streaming ? '' : '…')}
+        {isUser
+          ? msg.content
+          : (linkifyIncidents(msg.content, onSelectIncident, knownIncidents)
+             || (msg.streaming ? '' : '…'))}
         {msg.streaming && (
           <span className="inline-block w-1.5 h-3.5 bg-blue-400 ml-0.5 animate-pulse align-middle rounded-sm" />
         )}
@@ -141,7 +327,21 @@ function Message({ msg }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function AIPanel({ logs = null, activeNav = 'overview', selectedAlert = null }) {
+export default function AIPanel({
+  logs = null, activeNav = 'logs', selectedAlert = null,
+  focusedIncident = null, onSelectIncident = null,
+}) {
+  // Read the analysis directly rather than having it drilled through App: the
+  // assistant is asked about verdicts and reasoning far more than about raw
+  // logs, and it could not see either.
+  const { incidentsByUrgency, verdicts, cases } = useAnalysis();
+
+  const suggestions = SUGGESTED_BY_TAB[activeNav] || SUGGESTED_FALLBACK;
+  // Used to decide whether an id in a reply is real enough to link.
+  const knownIncidents = useMemo(
+    () => new Set((incidentsByUrgency || []).map(i => i.incident_id)),
+    [incidentsByUrgency],
+  );
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -215,8 +415,16 @@ export default function AIPanel({ logs = null, activeNav = 'overview', selectedA
       .filter(m => !m.streaming)
       .map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
 
-    const dashboard_context = buildDashboardContext(logs, activeNav, selectedAlert);
-    await startStream(trimmed, { message: trimmed, action: 'chat', history: apiHistory, dashboard_context });
+    const dashboard_context = buildDashboardContext({
+      logs, activeNav, selectedAlert,
+      incidents: incidentsByUrgency, verdicts, cases, focusedIncident,
+    });
+    // active_tab lets the backend attach that tab's contract — the question it
+    // exists to answer — so the reply is about this screen, not the product.
+    await startStream(trimmed, {
+      message: trimmed, action: 'chat', history: apiHistory,
+      dashboard_context, active_tab: activeNav,
+    });
   }
 
   const isStreaming = messages.some(m => m.streaming);
@@ -259,7 +467,7 @@ export default function AIPanel({ logs = null, activeNav = 'overview', selectedA
               <p className="text-muted text-[11px]">Ask anything about security, threats, or investigations.</p>
             </div>
             <div className="w-full space-y-1.5">
-              {SUGGESTED.map(q => (
+              {suggestions.map(q => (
                 <button
                   key={q}
                   onClick={() => sendMessage(q)}
@@ -273,7 +481,11 @@ export default function AIPanel({ logs = null, activeNav = 'overview', selectedA
           </div>
         )}
 
-        {messages.map((m, i) => <Message key={i} msg={m} />)}
+        {messages.map((m, i) => (
+          <Message key={i} msg={m}
+            onSelectIncident={onSelectIncident}
+            knownIncidents={knownIncidents} />
+        ))}
         <div ref={bottomRef} />
       </div>
 

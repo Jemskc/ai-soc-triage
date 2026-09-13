@@ -16,6 +16,8 @@ import { AlertTriangle, Shield, Globe, Users, Loader } from 'lucide-react';
 
 import { AnalysisProvider, useAnalysis } from './context/AnalysisContext';
 import AnalysisProgress, { DataSourceBadge } from './components/AnalysisProgress';
+import ErrorBoundary from './components/ErrorBoundary';
+import { NAV_LABELS } from './data/navConfig';
 import AISituationReport from './components/overview/AISituationReport';
 import AnalysisCoverage from './components/AnalysisCoverage';
 import LiveAgentActivity from './components/LiveAgentActivity';
@@ -27,6 +29,7 @@ import ResponsePage from './components/pages/ResponsePage';
 import AuditLog from './components/pages/AuditLog';
 import DetectionEngineering from './components/pages/DetectionEngineering';
 import IngestPanel from './components/pages/IngestPanel';
+import AnalystQuestions from './components/pages/AnalystQuestions';
 
 function LoadingOverlay({ progress, total }) {
   const pct = total > 0 ? Math.round((progress / total) * 100) : 0;
@@ -173,7 +176,18 @@ function Dashboard() {
       })
     : safeLogs;
 
+  // Per-tab boundary, keyed on the tab, so a crash is contained to the view
+  // that caused it and switching tabs recovers. Without this a single throw
+  // blanked the entire dashboard.
   function renderContent() {
+    return (
+      <ErrorBoundary key={activeNav} label={NAV_LABELS[activeNav] || activeNav}>
+        {renderTab()}
+      </ErrorBoundary>
+    );
+  }
+
+  function renderTab() {
     if (!loaded) return <ImportScreen onImport={handleImport} onSampleData={handleSampleData} />;
 
     switch (activeNav) {
@@ -304,6 +318,8 @@ function Dashboard() {
           logs={safeLogs}
           activeNav={activeNav}
           selectedAlert={selectedAlert}
+          focusedIncident={focusedIncident}
+          onSelectIncident={jumpToIncident}
         />
       </div>
 

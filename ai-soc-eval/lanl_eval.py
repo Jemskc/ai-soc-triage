@@ -73,15 +73,31 @@ def _open(path: Path):
         else open(path, "r", errors="replace")
 
 
-def load_redteam(path: Path) -> set[tuple[str, str, str, str]]:
-    """Ground truth: (time, user, src, dst) tuples of red-team activity."""
+def load_redteam(path: Path) -> tuple[set[tuple[str, str, str, str]], dict[str, int]]:
+    """Ground truth: (time, user, src, dst) tuples of red-team activity.
+
+    The file contains duplicate lines — 749 lines collapse to 715 distinct
+    tuples in LANL Cyber-1 — because several auth records can share one second,
+    user, source and destination (a TGS, a LogOn and a LogOff, say) and each is
+    labelled. Both counts are returned so the recall denominator is never
+    ambiguous: matching is by tuple, and one tuple may mark several auth rows.
+    """
     labels = set()
+    lines = 0
+    malformed = 0
     with _open(path) as fh:
         for line in fh:
             parts = line.strip().split(",")
             if len(parts) >= 4:
+                lines += 1
                 labels.add((parts[0], parts[1], parts[2], parts[3]))
-    return labels
+            elif line.strip():
+                malformed += 1
+    return labels, {
+        "labelled_lines": lines,
+        "distinct_tuples": len(labels),
+        "malformed_lines": malformed,
+    }
 
 
 def stream_auth(
@@ -295,8 +311,13 @@ def operational_load(projected_fp: float, tp: int, span_days: float) -> dict[str
 # Evaluation
 # ---------------------------------------------------------------------------
 
+def _disabled(spec: str) -> set[str]:
+    return {r.strip().upper() for r in (spec or "").split(",") if r.strip()}
+
+
 def evaluate(events: list[dict[str, Any]], stats: dict[str, Any],
-             ai_budget: int, use_ai: bool) -> dict[str, Any]:
+             ai_budget: int, use_ai: bool,
+             disabled_rules: set[str] | None = None) -> dict[str, Any]:
     import pandas as pd
     from funnel import TriageFunnel
 
@@ -307,7 +328,11 @@ def evaluate(events: list[dict[str, Any]], stats: dict[str, Any],
           f"({sum(labels)} red-team, {len(labels)-sum(labels):,} benign)", flush=True)
 
     started = time.time()
-    funnel = TriageFunnel(ai_budget=ai_budget)
+    # Answering "is this rule carrying its weight?" means running the same
+    # events without it, which is the whole point of caching the sample.
+    if disabled_rules:
+        print(f"[+] rules disabled for this run: {sorted(disabled_rules)}", flush=True)
+    funnel = TriageFunnel(ai_budget=ai_budget, disabled_rules=disabled_rules)
     outcome = funnel.run(df)
     funnel_seconds = time.time() - started
     print(f"[+] funnel: {len(outcome.incidents)} incidents in {funnel_seconds:.1f}s", flush=True)
@@ -546,47 +571,7 @@ def _self_test(tmp: Path) -> tuple[Path, Path]:
     return auth, red
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--auth", type=Path, help="auth.txt or auth.txt.gz")
-    ap.add_argument("--redteam", type=Path, help="redteam.txt or redteam.txt.gz")
-    ap.add_argument("--benign-sample", type=int, default=100_000,
-                    help="benign events to retain (default 100000)")
-    ap.add_argument("--ai-budget", type=int, default=25,
-                    help="incidents sent to the agents (default 25)")
-    ap.add_argument("--no-ai", action="store_true",
-                    help="Layer 1 only; no GPU needed")
-    ap.add_argument("--self-test", action="store_true",
-                    help="run on synthetic data to verify the harness")
-    ap.add_argument("--out", type=Path, default=BASE_DIR / "lanl_results.json")
-    args = ap.parse_args()
-
-    if args.self_test:
-        tmp = BASE_DIR / "selftest"
-        tmp.mkdir(exist_ok=True)
-        args.auth, args.redteam = _self_test(tmp)
-        args.benign_sample = min(args.benign_sample, 5000)
-
-    if not args.auth or not args.redteam:
-        ap.error("--auth and --redteam are required (or use --self-test)")
-    for p in (args.auth, args.redteam):
-        if not p.exists():
-            ap.error(f"missing file: {p}\nDownload from https://csr.lanl.gov/data/cyber1/")
-
-    print(f"[+] loading ground truth from {args.redteam}", flush=True)
-    redteam = load_redteam(args.redteam)
-    print(f"[+] {len(redteam)} red-team events labelled", flush=True)
-
-    print(f"[+] streaming {args.auth} (one pass, reservoir sampling)", flush=True)
-    events, stats = stream_auth(args.auth, redteam, args.benign_sample)
-    print(f"[+] {stats['auth_events_total']:,} auth events; "
-          f"true base rate {stats['true_base_rate']:.2e}", flush=True)
-
-    result = evaluate(events, stats, args.ai_budget, use_ai=not args.no_ai)
-    result["gates"] = apply_gates(result)
-    args.out.write_text(json.dumps(result, indent=1, default=str))
-
+def _report(result: dict[str, Any], stats: dict[str, Any], out: Path) -> None:
     d = result["layer1_detection"]
     print("\n" + "=" * 70)
     print(f"  events            {stats['auth_events_total']:,} "
@@ -627,7 +612,90 @@ def main() -> int:
     else:
         verdict = "FAIL"
     print(f"\n  OVERALL: {verdict}")
-    print(f"\n[+] full results -> {args.out}")
+    print(f"\n[+] full results -> {out}")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--auth", type=Path, help="auth.txt or auth.txt.gz")
+    ap.add_argument("--redteam", type=Path, help="redteam.txt or redteam.txt.gz")
+    ap.add_argument("--benign-sample", type=int, default=100_000,
+                    help="benign events to retain (default 100000)")
+    ap.add_argument("--ai-budget", type=int, default=25,
+                    help="incidents sent to the agents (default 25)")
+    ap.add_argument("--no-ai", action="store_true",
+                    help="Layer 1 only; no GPU needed")
+    ap.add_argument("--self-test", action="store_true",
+                    help="run on synthetic data to verify the harness")
+    ap.add_argument("--out", type=Path, default=BASE_DIR / "lanl_results.json")
+    # The streaming pass over 1.05B events costs an hour and produces the same
+    # 200k-event sample every time (the reservoir is seeded). Caching it turns
+    # a rule experiment from an hour into seconds, which is the difference
+    # between tuning a detector and guessing at it.
+    ap.add_argument("--save-sample", type=Path,
+                    help="write the sampled events + stats here after streaming")
+    ap.add_argument("--load-sample", type=Path,
+                    help="reuse a saved sample instead of re-streaming auth.txt")
+    ap.add_argument("--disable-rules", default="",
+                    help="comma-separated rule ids to switch off, e.g. RULE-015")
+    args = ap.parse_args()
+
+    if args.self_test:
+        tmp = BASE_DIR / "selftest"
+        tmp.mkdir(exist_ok=True)
+        args.auth, args.redteam = _self_test(tmp)
+        args.benign_sample = min(args.benign_sample, 5000)
+
+    if not args.auth or not args.redteam:
+        ap.error("--auth and --redteam are required (or use --self-test)")
+    for p in (args.auth, args.redteam):
+        if not p.exists():
+            ap.error(f"missing file: {p}\nDownload from https://csr.lanl.gov/data/cyber1/")
+
+    if args.load_sample:
+        if not args.load_sample.exists():
+            ap.error(f"no cached sample at {args.load_sample}")
+        print(f"[+] reusing cached sample {args.load_sample}", flush=True)
+        cached = json.loads(args.load_sample.read_text())
+        events, stats = cached["events"], cached["stats"]
+        rt_stats = cached.get("ground_truth", {})
+        print(f"[+] {len(events):,} events restored "
+              f"(true base rate {stats['true_base_rate']:.2e})", flush=True)
+        result = evaluate(events, stats, args.ai_budget, use_ai=not args.no_ai,
+                          disabled_rules=_disabled(args.disable_rules))
+        result["ground_truth"] = rt_stats
+        result["sample_source"] = str(args.load_sample)
+        result["gates"] = apply_gates(result)
+        args.out.write_text(json.dumps(result, indent=1, default=str))
+        _report(result, stats, args.out)
+        return 0
+
+    print(f"[+] loading ground truth from {args.redteam}", flush=True)
+    redteam, rt_stats = load_redteam(args.redteam)
+    print(f"[+] {rt_stats['labelled_lines']} red-team lines -> "
+          f"{rt_stats['distinct_tuples']} distinct (time,user,src,dst) tuples"
+          + (f"; {rt_stats['malformed_lines']} malformed"
+             if rt_stats["malformed_lines"] else ""), flush=True)
+
+    print(f"[+] streaming {args.auth} (one pass, reservoir sampling)", flush=True)
+    events, stats = stream_auth(args.auth, redteam, args.benign_sample)
+    print(f"[+] {stats['auth_events_total']:,} auth events; "
+          f"true base rate {stats['true_base_rate']:.2e}", flush=True)
+
+    if args.save_sample:
+        args.save_sample.write_text(json.dumps(
+            {"events": events, "stats": stats, "ground_truth": rt_stats}))
+        print(f"[+] sample cached -> {args.save_sample} "
+              f"(reuse with --load-sample to skip the hour-long stream)", flush=True)
+
+    result = evaluate(events, stats, args.ai_budget, use_ai=not args.no_ai,
+                      disabled_rules=_disabled(args.disable_rules))
+    result["ground_truth"] = rt_stats
+    result["gates"] = apply_gates(result)
+    args.out.write_text(json.dumps(result, indent=1, default=str))
+
+    _report(result, stats, args.out)
     return 0
 
 

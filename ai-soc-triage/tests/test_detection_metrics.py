@@ -159,3 +159,24 @@ def test_backtest_rejects_an_invalid_pattern(df):
 
 def test_backtest_rejects_unknown_rule(df):
     assert "error" in dm.backtest_exclusion(df, RULES, "NOPE", "user", "x")
+
+
+# ── an exclusion on a field that does not exist must not read as "safe" ───────
+# Backtesting `field="process"` when the column is `process_name` matched
+# nothing and returned safe:True with 0 removed — the same output a genuinely
+# harmless exclusion produces. That is the worst possible way to be wrong here,
+# because the whole point of the backtest is to stop an unsafe rule change.
+
+def test_backtest_rejects_a_field_the_events_do_not_have():
+    import pandas as pd
+    import detection_metrics as dm
+
+    df = pd.DataFrame([{"process_name": "lsass.exe", "user": "u1", "host": "h1"}])
+    rules = [{"id": "RULE-X", "name": "x", "severity": "high",
+              "match": {"process_name": ".*"}}]
+    out = dm.backtest_exclusion(df, rules, "RULE-X", "process", "lsass")
+    assert "error" in out
+    assert "unknown field" in out["error"]
+    # and it must not have quietly reported a safe verdict
+    assert "safe" not in out
+    assert "process_name" in out.get("did_you_mean", [])

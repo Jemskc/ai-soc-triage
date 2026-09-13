@@ -237,6 +237,22 @@ def backtest_exclusion(df, rules: list[dict[str, Any]], rule_id: str,
     except re.error as exc:
         return {"error": f"invalid pattern: {exc}"}
 
+    # A field the events do not have matches nothing, which previously came
+    # back as "removes 0 firings, safe: True" — indistinguishable from a
+    # genuinely harmless exclusion. A detection engineer could ship a typo
+    # believing the backtest had cleared it. Refuse instead, and say which
+    # fields exist.
+    if field_name not in df.columns:
+        close = sorted(c for c in df.columns
+                       if field_name.lower().replace("_", "") in
+                       str(c).lower().replace("_", ""))
+        return {
+            "error": f"unknown field '{field_name}' — the events have no such "
+                     f"column, so this exclusion would match nothing",
+            "did_you_mean": close[:5],
+            "available_fields": sorted(str(c) for c in df.columns)[:40],
+        }
+
     records = df.fillna("").to_dict(orient="records")
     matched = [e for e in records if _event_matches_rule(e, rule)]
     excluded = [e for e in matched

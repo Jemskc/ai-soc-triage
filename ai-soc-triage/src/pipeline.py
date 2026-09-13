@@ -570,11 +570,23 @@ def build_metrics(
     triaged_alerts = sum(
         i["alert_count"] for i in incidents if i["incident_id"] in verdicts
     )
+
+    # The autopilot does not retain the alert objects between cycles and passed
+    # an empty list, so the dashboard reported "0 rule alerts" on every live
+    # run while 280 rules had in fact fired. The incidents carry the firing
+    # counts, so derive rather than trust an empty argument.
+    rule_alerts = len(alerts)
+    if not rule_alerts:
+        rule_alerts = sum(
+            r.get("count", 1)
+            for i in incidents
+            for r in i.get("rules_fired", [])
+        )
     manual_minutes = triaged_alerts * MINUTES_PER_ALERT_MANUAL
 
     return {
         "events_ingested": int(len(df)),
-        "rule_alerts": len(alerts),
+        "rule_alerts": rule_alerts,
         "incidents": len(incidents),
         "escalated": escalated,
         "suppressed": suppressed,

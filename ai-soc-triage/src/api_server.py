@@ -91,6 +91,98 @@ SOC_SYSTEM = (
     "Format lists with bullet points. Keep responses under 400 words unless detail is critical."
 )
 
+# The dashboard's tab ids are not the contract ids: the nav is organised around
+# what an analyst does, the contracts around what the model produces. Mapped in
+# one place so adding a tab means adding one line here, not hunting for
+# branches scattered through the UI.
+_NAV_TO_CONTRACT = {
+    "logs": "logs",
+    "alerts": "alerts",
+    "ai": "investigations",
+    "evidence": "evidence_graph",
+    "response": "playbooks",
+    "email": "email",
+}
+
+# What each tab shows, in the assistant's terms. The analyst_question comes
+# from the contract registry so it can never drift from what the tab actually
+# renders; this adds only what the screen looks like.
+_TAB_SHOWS = {
+    "logs": (
+        "every raw parsed event, SIEM-style, with search and filters. Each row "
+        "expands to all fields plus the original record, and has an 'Explain "
+        "this event' button that runs a grounded lookup."
+    ),
+    "alerts": (
+        "correlated incidents ordered by AI urgency, not by time. Each carries "
+        "the agent's verdict, the evidence behind it, and the knowledge-base "
+        "sources it was grounded in."
+    ),
+    "ai": (
+        "the agent's reasoning trace for one incident: the hypothesis it "
+        "started from, every tool call it made, what came back, and how it "
+        "reached its verdict."
+    ),
+    "evidence": (
+        "the entity graph for one incident — hosts, accounts, processes, "
+        "techniques and the rules that fired — plus entities shared with other "
+        "incidents, which is how a campaign becomes visible."
+    ),
+    "response": (
+        "proposed containment and recovery actions, with the human approval "
+        "gate. Nothing that changes production state is executed automatically."
+    ),
+    "email": (
+        "phishing assessment: authentication results, indicators with reasons, "
+        "and the ATT&CK techniques retrieved to support the verdict."
+    ),
+    "settings": "configuration, ingestion, detection metrics and the audit trail.",
+}
+
+
+def _tab_briefing(nav_id: str) -> str:
+    """Tell the assistant what the analyst is actually looking at."""
+    nav_id = (nav_id or "").strip().lower()
+    if not nav_id:
+        return ""
+    shows = _TAB_SHOWS.get(nav_id, "")
+    lines = [f"The analyst is currently on the '{nav_id}' tab."]
+    if shows:
+        lines.append(f"That tab shows {shows}")
+    contract_id = _NAV_TO_CONTRACT.get(nav_id)
+    if contract_id:
+        try:
+            from tab_contracts import get_contract
+            contract = get_contract(contract_id)
+            lines.append(
+                f"The question this tab exists to answer: {contract.analyst_question}"
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    lines.append(
+        "Answer about what is on this screen first — what it shows, how it was "
+        "produced, when it ran and why it concluded what it did. Refer to "
+        "incidents by their INC- id so the analyst can click through to them, "
+        "and name specific hosts, accounts and rules rather than describing "
+        "them in general terms. If the screen does not contain the answer, say "
+        "so and name the tab that would."
+    )
+    # This path has no grounding check in code — unlike the verdict and enrich
+    # paths, nothing here verifies a citation against what was retrieved. Asked
+    # about an incident whose context listed `attack:T1021.002, attack:T1003`
+    # as bare ids, the model paired them backwards and told the analyst
+    # Mimikatz was T1021.002. Context now carries titles; this states the rule
+    # as well, because a chat answer is acted on just like a verdict is.
+    lines.append(
+        "Only state an ATT&CK technique id that appears verbatim in the "
+        "context above, and use the title given there for it — never pair an "
+        "id with a technique name from memory. If a rule's technique is not in "
+        "the context, name the rule and say the mapping is not shown rather "
+        "than supplying an id."
+    )
+    return "\n".join(lines)
+
+
 # Per-action token budgets — keeps each endpoint fast and prevents token starvation.
 _ACTION_TOKEN_LIMITS: dict[str, int] = {
     # Alert actions
@@ -313,6 +405,11 @@ class ChatRequest(BaseModel):
     email: dict[str, Any] = {}
     history: list[dict[str, Any]] = []
     dashboard_context: str = ""
+    # Which dashboard tab the analyst is looking at. The assistant is asked
+    # about what is on screen far more often than about the product in the
+    # abstract, and without this it cannot tell the Evidence Graph from the
+    # Phishing tab.
+    active_tab: str = ""
 
 
 class LogSearchRequest(BaseModel):
@@ -385,8 +482,10 @@ def _resolve_chat_request(req: ChatRequest) -> tuple[str, int, list[dict]]:
     ]
 
     system = SOC_SYSTEM
+    if briefing := _tab_briefing(req.active_tab):
+        system += f"\n\n{briefing}"
     if req.dashboard_context:
-        system = SOC_SYSTEM + f"\n\nCurrent dashboard state:\n{req.dashboard_context}"
+        system += f"\n\nCurrent dashboard state:\n{req.dashboard_context}"
 
     return user_message, max_tokens, api_history, system
 
@@ -927,6 +1026,43 @@ def approve_action(req: ApprovalRequest):
 # Autopilot — continuous, event-driven analysis
 # ─────────────────────────────────────────────────────────────
 
+# ── serve the dashboard from the API ─────────────────────────────────────────
+# One port, not two. The dev server runs the UI on 5173 while the API is on
+# 8000, which works locally and fails the moment the dashboard is opened
+# through an SSH tunnel or from another machine: the page loads, every API call
+# goes to a port nobody forwarded, and the app sits on a loading spinner with
+# no error to explain it. Serving the built bundle here makes the UI and its
+# API same-origin, so forwarding 8000 is sufficient.
+#
+# Mounted last so it can never shadow an API route; the catch-all only answers
+# paths that matched nothing above.
+_UI_DIST = _Path(__file__).resolve().parents[2] / "soc-sentinel" / "dist"
+
+
+def _mount_dashboard() -> None:
+    if not (_UI_DIST / "index.html").exists():
+        print(f"[!] no built dashboard at {_UI_DIST} — run `npm run build` in "
+              f"soc-sentinel to serve the UI from this port", flush=True)
+        return
+
+    from fastapi.responses import FileResponse as _FileResponse
+    from fastapi.staticfiles import StaticFiles as _StaticFiles
+
+    app.mount("/assets", _StaticFiles(directory=_UI_DIST / "assets"), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def _spa(full_path: str):
+        # A real file if there is one (favicon, sample data), otherwise
+        # index.html so client-side routes survive a page refresh.
+        candidate = (_UI_DIST / full_path).resolve()
+        if full_path and candidate.is_file() and _UI_DIST in candidate.parents:
+            return _FileResponse(candidate)
+        return _FileResponse(_UI_DIST / "index.html")
+
+    print(f"[+] dashboard served from {_UI_DIST} — open http://<host>:8000/",
+          flush=True)
+
+
 import autopilot as _autopilot
 import scoring as _scoring
 
@@ -1321,3 +1457,7 @@ def scorecard():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+
+
+# Registered last: the SPA catch-all must not shadow any API route above.
+_mount_dashboard()

@@ -292,7 +292,8 @@ def apply_threshold_rule(rule: dict[str, Any], df: pd.DataFrame) -> list[dict[st
     return alerts
 
 
-def run_detection(df: pd.DataFrame) -> list[dict[str, Any]]:
+def run_detection(df: pd.DataFrame,
+                  disabled_rules: set[str] | None = None) -> list[dict[str, Any]]:
     """Load rules and run all detections against the events DataFrame.
 
     Args:
@@ -306,6 +307,11 @@ def run_detection(df: pd.DataFrame) -> list[dict[str, Any]]:
         return []
 
     rules = load_rules()
+    if disabled_rules:
+        # Switching a rule off is a first-class operation: measuring whether
+        # a rule earns its noise means running the same events without it.
+        off = {str(r).upper() for r in disabled_rules}
+        rules = [r for r in rules if str(r.get('id', '')).upper() not in off]
     all_alerts: list[dict[str, Any]] = []
 
     for rule in rules:

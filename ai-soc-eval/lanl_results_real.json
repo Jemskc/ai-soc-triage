@@ -1,0 +1,328 @@
+{
+ "dataset": {
+  "auth_events_total": 1051430459,
+  "benign_total": 1051429757,
+  "malicious_total": 702,
+  "benign_sampled": 200000,
+  "sampling_fraction": 0.00019021717681897413,
+  "true_base_rate": 6.676618448619625e-07,
+  "span_days": 57.99998842592593
+ },
+ "funnel": {
+  "stages": [
+   {
+    "name": "stream",
+    "described": "Stream processing and baseline accumulation",
+    "events_in": 200702,
+    "events_out": 200702,
+    "elapsed_seconds": 1.76,
+    "note": "5 chunk(s); baselines for 20404 accounts and 8608 hosts",
+    "reduction": 1.0
+   },
+   {
+    "name": "rules",
+    "described": "Deterministic detection rules",
+    "events_in": 200702,
+    "events_out": 10123,
+    "elapsed_seconds": 536.66,
+    "note": "15 rules; high precision, low recall",
+    "reduction": 19.8
+   },
+   {
+    "name": "analytics",
+    "described": "Statistical rarity and UEBA baseline deviation",
+    "events_in": 200702,
+    "events_out": 32139,
+    "elapsed_seconds": 14.27,
+    "note": "unsupervised: no labelled benign data exists here, so these are rarity and per-entity deviation, not a trained model",
+    "reduction": 6.2
+   },
+   {
+    "name": "promotion",
+    "described": "Promote statistically extreme unruled events",
+    "events_in": 32139,
+    "events_out": 10726,
+    "elapsed_seconds": 0.99,
+    "note": "10726 event(s) reached the AI path without a rule hit",
+    "reduction": 3.0
+   },
+   {
+    "name": "correlation",
+    "described": "Correlate alerts into incidents",
+    "events_in": 20849,
+    "events_out": 3887,
+    "elapsed_seconds": 90.91,
+    "note": "",
+    "reduction": 5.4
+   },
+   {
+    "name": "ranking",
+    "described": "Rank by fused signal and apply the AI budget",
+    "events_in": 3887,
+    "events_out": 25,
+    "elapsed_seconds": 0.05,
+    "note": "budget 25; 3862 incident(s) recorded below the line, not discarded",
+    "reduction": 155.5
+   }
+  ],
+  "stream_summary": {
+   "events": 200702,
+   "chunks": 5,
+   "distinct_processes": 0,
+   "distinct_users": 20404,
+   "distinct_hosts": 8608,
+   "distinct_parent_child": 0
+  },
+  "incident_count": 3887,
+  "selected_for_ai": 25,
+  "deferred": 3862,
+  "elapsed_seconds": 644.78,
+  "calibration": {
+   "process": {
+    "distinct_keys": 1,
+    "singleton_share": 0.0,
+    "discriminative_power": 1.0
+   },
+   "lineage": {
+    "distinct_keys": 1,
+    "singleton_share": 0.0,
+    "discriminative_power": 1.0
+   },
+   "event_id": {
+    "distinct_keys": 1,
+    "singleton_share": 0.0,
+    "discriminative_power": 1.0
+   },
+   "user_host_pair": {
+    "distinct_keys": 91405,
+    "singleton_share": 0.677,
+    "discriminative_power": 0.323
+   }
+  },
+  "caveats": [
+   "No separate baseline was supplied, so rarity was computed against the same data being scored. 'Rare' therefore means rare within this capture, not rare for this environment \u2014 normal operating-system activity can rank highly. Supply a baseline learned from known-normal traffic to fix this.",
+   "Low discriminative power for user_host_pair: most values occur only once in this sample, so rarity there carries little information and is damped accordingly."
+  ],
+  "deferred_summary": [
+   {
+    "incident_id": "INC-64CB05EC09",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C2867 (15 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-B74F5F022D",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C1933 (12 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-541A889F4A",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C2046 (13 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-3CD51E507D",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C3055 (16 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-3C9893D14C",
+    "funnel_score": 1.0,
+    "top_reason": "U235 rarely appears on C467 (1 of 26 events)."
+   },
+   {
+    "incident_id": "INC-512EE861FA",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C3188 (14 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-657C96A018",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C1881 (19 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-5B9301F939",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C1998 (24 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-A456B1769C",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C3077 (13 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-2D00518284",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C1772 (13 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-DEDDD3A111",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C1786 (20 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-41A1003230",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C3435 (12 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-7CA3C887B4",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C2765 (17 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-B9CE8C9FB7",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C1881 (19 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-B871B255F4",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C2483 (15 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-13E0D08AE1",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C2472 (9 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-125052E7DB",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C1848 (17 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-D1122791F8",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C815 (21 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-344C1BA056",
+    "funnel_score": 1.0,
+    "top_reason": "U66 rarely appears on C245 (19 of 2223 events)."
+   },
+   {
+    "incident_id": "INC-BDCDD70D99",
+    "funnel_score": 1.0,
+    "top_reason": "U7 rarely appears on C625 (10 of 608 events)."
+   }
+  ]
+ },
+ "layer1_detection": {
+  "sample": {
+   "tp": 702,
+   "fp": 20142,
+   "tn": 179858,
+   "fn": 0,
+   "precision": 0.0337,
+   "recall": 1.0,
+   "f1": 0.0652,
+   "false_positive_rate": 0.10071
+  },
+  "base_rate_corrected": {
+   "available": true,
+   "scale_factor": 5257.1,
+   "projected_false_positives": 105889490,
+   "precision": 7e-06,
+   "f1": 1.3e-05,
+   "note": "Precision corrected to the corpus base rate. The sample figure is optimistic by roughly the sampling factor and should never be quoted on its own."
+  },
+  "operational": {
+   "alerts_per_day": 1825693.3,
+   "false_positives_per_day": 1825681.2,
+   "true_positives_per_day": 12.1,
+   "analyst_hours_per_day_at_8min": 243425.8,
+   "note": "8 minutes of manual triage per alert is an assumption, not a measurement."
+  }
+ },
+ "timing": {
+  "funnel_seconds": 644.85
+ },
+ "layer2_ai": {
+  "cases_analysed": 25,
+  "cases_decided": 12,
+  "cases_abstained": 13,
+  "cases_abstained_that_were_attacks": 0,
+  "abstention_rate": 0.52,
+  "verdict_quality": {
+   "tp": 1,
+   "fp": 7,
+   "tn": 4,
+   "fn": 0,
+   "precision": 0.125,
+   "recall": 1.0,
+   "f1": 0.2222,
+   "false_positive_rate": 0.636364
+  },
+  "engine": {
+   "calls": 126,
+   "parse_failures": 0,
+   "schema_failures": 0,
+   "ungrounded_citations": 0,
+   "empty_retrievals": 0,
+   "total_seconds": 0.0,
+   "mean_seconds": 0.0
+  },
+  "model_calls": 253,
+  "parse_failures": 0,
+  "parse_failure_rate": 0.0,
+  "citations_total": 46,
+  "citations_ungrounded": 0,
+  "grounding_rate": 1.0,
+  "calibration": {
+   "available": true,
+   "brier_score": 0.3967,
+   "bins": [
+    {
+     "range": "20%-40%",
+     "n": 1,
+     "stated": 0.3,
+     "actual": 1.0
+    },
+    {
+     "range": "60%-80%",
+     "n": 7,
+     "stated": 0.643,
+     "actual": 0.429
+    },
+    {
+     "range": "80%-100%",
+     "n": 4,
+     "stated": 0.8,
+     "actual": 0.25
+    }
+   ]
+  },
+  "seconds_per_case": 72.7
+ },
+ "gates": {
+  "checks": {
+   "recall": {
+    "bar": 0.6,
+    "measured": 1.0,
+    "passed": true
+   },
+   "base_rate_precision": {
+    "bar": 0.01,
+    "measured": 7e-06,
+    "passed": false
+   },
+   "false_positives_per_day": {
+    "bar": 100.0,
+    "measured": 1825681.2,
+    "passed": false
+   },
+   "grounding_rate": {
+    "bar": 0.95,
+    "measured": 1.0,
+    "passed": true
+   },
+   "parse_failure_rate": {
+    "bar": 0.02,
+    "measured": 0.0,
+    "passed": true
+   }
+  },
+  "undecided": [],
+  "passed": false,
+  "note": "Bars are pre-registered in GATES and were fixed before any run."
+ }
+}

@@ -111,6 +111,7 @@ class TriageFunnel:
         self,
         ai_budget: int = DEFAULT_AI_BUDGET,
         baseline: StreamStats | None = None,
+        disabled_rules: set[str] | None = None,
     ) -> None:
         """
         baseline: statistics learned from a separate period of known-normal
@@ -122,6 +123,7 @@ class TriageFunnel:
         """
         self.ai_budget = ai_budget
         self.baseline = baseline
+        self.disabled_rules = set(disabled_rules or ())
         self.self_baselined = baseline is None
         self.stats = baseline if baseline is not None else StreamStats()
 
@@ -215,10 +217,11 @@ class TriageFunnel:
         s = stage("rules", "Deterministic detection rules")
         t0 = time.time()
         s.events_in = len(df)
-        alerts = run_detection(df)
+        alerts = run_detection(df, disabled_rules=self.disabled_rules)
         s.events_out = len(alerts)
         s.elapsed = time.time() - t0
-        s.note = f"{len(load_rules())} rules; high precision, low recall"
+        active = len(load_rules()) - len(self.disabled_rules or ())
+        s.note = f"{active} rules; high precision, low recall"
         if on_stage:
             on_stage(s)
 

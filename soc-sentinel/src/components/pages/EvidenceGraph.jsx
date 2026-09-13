@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Network, Monitor, User, Cpu, Globe, Hash, FileWarning, Shield, Server,
+  ChevronDown,
 } from 'lucide-react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { api } from '../../utils/api';
@@ -266,17 +267,31 @@ export default function EvidenceGraph({ selectedId, onSelect }) {
 
         {/* The cross-incident view: one account or host appearing in several
             cases is how a campaign shows itself. */}
-        {showShared && shared.length > 0 && (
+        {/* The header stays visible when collapsed. Previously the toggle
+            lived inside the block it hid, so hiding removed the button too and
+            the section could not be brought back without reloading. */}
+        {shared.length > 0 && (
           <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <div className="flex items-center gap-2 px-3 py-2 bg-panel border-b border-border">
+            <button
+              type="button"
+              onClick={() => setShowShared(v => !v)}
+              aria-expanded={showShared}
+              className="w-full flex items-center gap-2 px-3 py-2 bg-panel border-b border-border hover:bg-hover transition-colors text-left"
+            >
               <Network size={13} className="text-amber-400" />
               <span className="text-muted text-[10px] uppercase tracking-wider">
                 Entities appearing in more than one incident
               </span>
-              <button onClick={() => setShowShared(false)}
-                className="ml-auto text-muted hover:text-primary text-[10px]">hide</button>
-            </div>
-            <div className="divide-y divide-border">
+              <span className="text-amber-400 text-[10px]">{shared.length}</span>
+              <span className="ml-auto flex items-center gap-1 text-muted text-[10px]">
+                {showShared ? 'hide' : 'show'}
+                <ChevronDown
+                  size={12}
+                  className={`transition-transform ${showShared ? '' : '-rotate-90'}`}
+                />
+              </span>
+            </button>
+            <div className="divide-y divide-border" hidden={!showShared}>
               {shared.slice(0, 8).map(e => {
                 const Icon = KIND[e.kind].icon;
                 return (

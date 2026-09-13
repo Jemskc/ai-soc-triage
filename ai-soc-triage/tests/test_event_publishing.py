@@ -147,3 +147,33 @@ def test_completed_bundle_is_written_atomically(tmp_path):
     import json as _json
     assert _json.loads(target.read_text())["new"] is True
     assert not list(tmp_path.glob("*.tmp"))
+
+
+# ── metrics must not under-report when the caller has no alert objects ────────
+# The autopilot calls build_metrics(df, [], incidents, verdicts) because it does
+# not retain alerts between cycles. That made the dashboard show "0 rule alerts"
+# on every live run while 280 rules had fired.
+
+def test_rule_alerts_derived_from_incidents_when_alerts_missing():
+    import pipeline
+
+    incidents = [
+        {"incident_id": "INC-1", "alert_count": 3,
+         "rules_fired": [{"rule": "A", "count": 2}, {"rule": "B", "count": 1}]},
+        {"incident_id": "INC-2", "alert_count": 1,
+         "rules_fired": [{"rule": "A", "count": 5}]},
+    ]
+    import pandas as pd
+    metrics = pipeline.build_metrics(pd.DataFrame([{"x": 1}]), [], incidents, {})
+    assert metrics["rule_alerts"] == 8
+
+
+def test_supplied_alerts_still_win():
+    import pandas as pd
+    import pipeline
+
+    incidents = [{"incident_id": "INC-1", "alert_count": 1,
+                  "rules_fired": [{"rule": "A", "count": 99}]}]
+    metrics = pipeline.build_metrics(
+        pd.DataFrame([{"x": 1}]), [{"a": 1}, {"a": 2}], incidents, {})
+    assert metrics["rule_alerts"] == 2
