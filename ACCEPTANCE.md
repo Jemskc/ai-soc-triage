@@ -49,6 +49,37 @@ rate 6.68e-07), **TEST split only**.
 (1,825,681/day).** B2 and B3 are the same root cause and must be fixed
 together — they are not two problems.
 
+### Why B2 cannot be met with the current features — measured, not assumed
+
+The bar stays at 0.50. It is not lowered to whatever we happen to score. But
+three measurements say it is unreachable per-incident, and the reason matters
+more than the number:
+
+1. **58% of malicious incidents are a single small authentication** — one
+   destination, one account, at most two events. No volume feature separates
+   those from an ordinary logon, which caps any volume-based rule at **42%
+   recall**. The best combination found reaches 34%, so the tuning is already
+   near its ceiling.
+
+2. **Rarity is anti-correlated here.** Malicious source hosts are seen a median
+   of 670 times in the sample; benign ones 82. Filtering on rare
+   (source, user) pairs catches 3.4% of attacks and 22% of benign traffic. The
+   RarityModel this project leans on does not merely fail on this data, it
+   points the wrong way — which explains the separately measured fact that
+   behavioural analytics contributed zero unique catches. The red team
+   compromised a busy host and used active, legitimate accounts, which is what
+   a real intrusion looks like: it hides in normal traffic, not novel traffic.
+
+3. **The one clean signal is a graph feature.** `destinations_per_source >= 2`
+   gives 22% recall at 0.5% benign-hit — 20 true positives against 1 false.
+   Fan-out is a property of the authentication graph, not of an event.
+
+So the route to B2 is not a better threshold. It is detection over the
+authentication graph across time — linking single events into a campaign — so
+that a lone logon is judged by the company it keeps rather than in isolation.
+That is a design change, and it is recorded here rather than absorbed by
+quietly relaxing the gate.
+
 Command: `python lanl_eval.py --load-sample golden.jsonl`
 
 ---
