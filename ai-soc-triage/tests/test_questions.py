@@ -136,3 +136,40 @@ def test_autopilot_can_resume_an_answered_case():
     assert hasattr(autopilot.Autopilot, "resume_answered")
     src = inspect.getsource(autopilot.Autopilot.resume_answered)
     assert "_pending.insert(0" in src, "answered cases should jump the queue"
+
+
+# ── a question must never hide an intrusion ──────────────────────────────────
+# Measured on one real run: 40 of 81 incidents were parked asking a human, and
+# 14 of those carried Mimikatz or PsExec detections. A parked case records no
+# verdict and no risk score, so those 14 were absent from the Alerts queue
+# entirely — discoverable only in a side tab. The suppression veto could not
+# catch it, because parking returns from run_case before autonomy is consulted.
+
+def test_hands_on_evidence_is_what_distinguishes_a_safe_park():
+    import autonomy
+
+    ordinary = {"rules_fired": [{"rule": "Behavioural: rare lineage"}],
+                "processes": ["C:\\Windows\\System32\\svchost.exe"]}
+    intrusion = {"rules_fired": [{"rule": "Mimikatz Credential Dumping Behavior"}],
+                 "processes": ["C:\\Windows\\PSEXESVC.exe"]}
+
+    # An ordinary behavioural incident may wait for an answer.
+    assert autonomy.hands_on_evidence(ordinary) == []
+    # One showing hands-on activity may not.
+    assert autonomy.hands_on_evidence(intrusion)
+
+
+def test_autopilot_escalates_a_parked_intrusion_rather_than_hiding_it():
+    """The parked branch must publish a verdict when evidence is hands-on."""
+    import inspect
+
+    import autopilot
+
+    src = inspect.getsource(autopilot.Autopilot._investigate_pending)
+    # The guard exists and is keyed on hands-on evidence, not on the question.
+    assert "hands_on_evidence" in src
+    assert "if not hands_on:" in src
+    # And the escalation path sets a verdict rather than dropping the case.
+    assert '"verdict": "ESCALATE"' in src
+    # The question is still asked — escalating must not silence it.
+    assert "question.asked" in src

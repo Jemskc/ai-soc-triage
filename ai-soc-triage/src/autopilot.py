@@ -31,6 +31,9 @@ from typing import Any, Callable
 
 import pandas as pd
 
+import autonomy
+import risk_engine
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 INBOX_DIR = BASE_DIR / "data" / "inbox"
 STATE_PATH = BASE_DIR / "output" / "autopilot_state.json"
@@ -431,8 +434,53 @@ class Autopilot:
                     question=asked.question,
                     why=asked.why_it_matters,
                 )
-                # Not counted as analysed: nothing was decided.
-                continue
+
+                # A question must never be a gate in front of an intrusion.
+                # Measured on one run: 14 incidents carrying Mimikatz or PsExec
+                # detections were parked asking "was this an approved change?"
+                # and sat invisible — no verdict, no risk score, absent from
+                # the Alerts queue, discoverable only in a side tab. The
+                # suppression veto could not catch it because parking returns
+                # before autonomy is ever consulted.
+                #
+                # So where the detections already show hands-on activity, the
+                # incident is escalated now and the question is asked alongside
+                # it as enrichment. Answering still resumes the full
+                # investigation; it just no longer decides whether anyone sees
+                # the case.
+                hands_on = autonomy.hands_on_evidence(incident)
+                if not hands_on:
+                    # Nothing decided, and nothing alarming — the queue waits.
+                    continue
+
+                self.bus.publish(
+                    "question.escalated_anyway",
+                    incident_id=incident["incident_id"],
+                    evidence=hands_on,
+                )
+                case.investigation = dict(case.investigation or {})
+                case.investigation["verdict"] = {
+                    "verdict": "ESCALATE",
+                    "urgency_score": 8,
+                    "confidence": 0.5,
+                    "analyst_summary": (
+                        "Escalated while awaiting an analyst answer: the "
+                        "detections already show hands-on activity — "
+                        + "; ".join(hands_on)
+                        + ". The agent's question is open alongside this, not "
+                        "in front of it."
+                    ),
+                    "evidence": hands_on,
+                    "awaiting_answer": asked.question,
+                }
+                case.investigation["awaiting_human"] = None
+                case.risk = risk_engine.score_case(case)
+                case.autonomy = autonomy.decide(
+                    case.risk.to_dict() if case.risk else None,
+                    case.agent_payload("triage"),
+                    case.asset_criticality,
+                    incident=incident,
+                ).to_dict()
 
             self.state.cases_analysed += 1
             payload = case.to_dict()
