@@ -130,7 +130,7 @@ def main() -> int:
     for i in range(0, len(events), args.batch):
         chunk = [to_event(g) for g in events[i:i + args.batch]]
         try:
-            r = post(f"{args.url}/ingest", {"events": chunk, "origin": "golden.jsonl"}, key)
+            r = post(f"{args.url}/ingest", {"events": chunk, "origin": args.golden.name}, key)
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode()[:200]
             print(f"[!] HTTP {exc.code} at batch {i//args.batch}: {detail}")

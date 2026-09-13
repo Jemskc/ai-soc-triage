@@ -141,7 +141,7 @@ STANDARD_COLUMNS = [
     "timestamp", "event_id", "computer", "channel", "user", "source_ip",
     "destination_port", "process_name", "parent_process", "command_line",
     "logon_type", "task_name", "object_name", "raw_data", "raw_message",
-    "source_file", "attack_folder",
+    "source_file", "attack_folder", "ingest_source",
 ]
 
 
@@ -510,6 +510,10 @@ def _to_log_row(row: dict[str, Any], index: int, alert: dict[str, Any] | None) -
         "message": message[:400],
         "rule": rule,
         "source": str(row.get("channel") or "Windows"),
+        # Which import this row arrived in. Without it the log view is one
+        # undifferentiated pile and an analyst cannot ask the first question
+        # they always ask: which file did this come from?
+        "ingestSource": str(row.get("ingest_source") or row.get("source_file") or "unknown"),
         "mitre": mitre,
         "status": "open",
         "eventId": str(row.get("event_id") or ""),

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Activity, ArrowRight, Search, Database, Filter, Layers } from 'lucide-react';
 import { useAnalysis } from '../../context/AnalysisContext';
+import SourcePicker from '../SourcePicker';
 import LogsExplorer from '../../pages/LogsExplorer';
 import { useLiveEvents, useLiveStats } from '../../hooks/useLiveEvents';
 
@@ -68,11 +69,11 @@ export default function LiveLogs({ onSelectLog, onInvestigate, searchQuery }) {
   // in a day than a browser can hold, so the server filters and pages and this
   // holds only what is on screen.
   const [page, setPage] = useState({ events: [], total: 0, offset: 0, loading: true });
-  const [filters, setFilters] = useState({ q: searchQuery || '', severity: '', host: '', user: '' });
+  const [filters, setFilters] = useState({ q: searchQuery || '', severity: '', host: '', user: '', source: '' });
   const [offset, setOffset] = useState(0);
   const PAGE = 500;
 
-  useEffect(() => { setOffset(0); }, [filters.q, filters.severity, filters.host, filters.user]);
+  useEffect(() => { setOffset(0); }, [filters.q, filters.severity, filters.host, filters.user, filters.source]);
   useEffect(() => { setFilters(f => ({ ...f, q: searchQuery || '' })); }, [searchQuery]);
 
   useEffect(() => {
@@ -126,6 +127,12 @@ export default function LiveLogs({ onSelectLog, onInvestigate, searchQuery }) {
           time range, source and severity filters, export. Raw records stay one
           click away — an analyst checking the AI's work needs the original,
           not the platform's summary of it. */}
+      {/* Which files are loaded, and which one is in view. */}
+      <SourcePicker
+        selected={filters.source}
+        onSelect={name => setFilters(f => ({ ...f, source: name }))}
+      />
+
       <div className="flex-1 min-h-0">
         <LogsExplorer
           logs={page.events}

@@ -85,13 +85,14 @@ export const api = {
   // dump the dev server hosts. The logs are deterministic — they need no
   // model — so viewing them must never be blocked on the backend being up or
   // on a model reload.
-  events: async ({ offset = 0, limit = 1000, q, severity, host, user, eventId } = {}) => {
+  events: async ({ offset = 0, limit = 1000, q, severity, host, user, eventId, source } = {}) => {
     const p = new URLSearchParams({ offset, limit });
     if (q) p.set('q', q);
     if (severity) p.set('severity', severity);
     if (host) p.set('host', host);
     if (user) p.set('user', user);
     if (eventId) p.set('event_id', eventId);
+    if (source) p.set('source', source);
     try {
       return await request(`/events?${p}`);
     } catch {
@@ -108,6 +109,9 @@ export const api = {
       };
     }
   },
+
+  // What has been imported, so the analyst can scope to one file.
+  sources: () => request('/sources'),
 
   incidents: () => request('/incidents'),
   incident: (id) => request(`/incidents/${id}`),

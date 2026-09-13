@@ -135,3 +135,44 @@ def test_wildcard_cors_is_not_used_when_a_key_is_set():
     assert "localhost:8000" in block, block
     # The wildcard must only survive when no key is configured.
     assert block.index('["*"]') > block.index("elif API_KEY:")
+
+
+# ── heavy modules must at least be syntactically valid ───────────────────────
+# api_server is excluded from the import suite because importing it loads a 28GB
+# model. That exclusion let a `continue` outside a loop ship: 238 tests passed
+# and the server would not start. Parsing costs nothing and catches the whole
+# class — this has now happened twice.
+
+def test_heavy_modules_compile():
+    """compile(), not ast.parse().
+
+    ast.parse builds the tree and stops. Checks like "'continue' not properly
+    in loop" happen in the bytecode compiler afterwards, so a parse-only test
+    passes on exactly the error that took the server down — verified: ast.parse
+    accepts `def f(): continue`, compile() rejects it.
+    """
+    src_dir = Path(__file__).resolve().parents[1] / "src"
+    for name in sorted(HEAVY):
+        path = src_dir / f"{name}.py"
+        if not path.exists():
+            continue
+        try:
+            compile(path.read_text(), str(path), "exec")
+        except SyntaxError as exc:
+            raise AssertionError(
+                f"{name}.py: {exc.msg} at line {exc.lineno}"
+            ) from exc
+
+
+def test_scripts_compile_too():
+    """Operator scripts fail at the worst moment: when someone runs them."""
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    if not scripts.exists():
+        return
+    for path in sorted(scripts.glob("*.py")):
+        try:
+            compile(path.read_text(), str(path), "exec")
+        except SyntaxError as exc:
+            raise AssertionError(
+                f"{path.name}: {exc.msg} at line {exc.lineno}"
+            ) from exc

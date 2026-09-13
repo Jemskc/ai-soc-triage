@@ -162,6 +162,7 @@ class Autopilot:
         self._campaign_built_at = 0
         self._verdicts: dict[str, Any] = {}
         self._last_df: pd.DataFrame | None = None
+        self._sources: dict[str, dict[str, Any]] = {}
         self._events_written = -1
         self._events_written_at = 0.0
         self._lock = threading.Lock()
@@ -225,8 +226,33 @@ class Autopilot:
 
     # -- ingestion ---------------------------------------------------------
 
+    def sources(self) -> list[dict[str, Any]]:
+        """What has been imported, newest activity first."""
+        with self._lock:
+            return sorted(self._sources.values(),
+                          key=lambda s: -s["last_seen"])
+
     def submit(self, df: pd.DataFrame, origin: str = "api") -> None:
-        """Hand a batch of normalised events to the pipeline."""
+        """Hand a batch of normalised events to the pipeline.
+
+        The origin is stamped onto every row, not just announced on the bus.
+        It used to be published and discarded, so once two files had been
+        imported there was no way to tell their events apart — or even to say
+        how many files had been loaded.
+        """
+        if "ingest_source" not in df.columns:
+            df = df.assign(ingest_source=origin)
+        else:
+            df["ingest_source"] = df["ingest_source"].replace("", origin).fillna(origin)
+
+        with self._lock:
+            entry = self._sources.setdefault(
+                origin, {"name": origin, "events": 0, "batches": 0,
+                         "first_seen": time.time(), "last_seen": time.time()})
+            entry["events"] += len(df)
+            entry["batches"] += 1
+            entry["last_seen"] = time.time()
+
         self.inbox.put(df)
         self.state.queued_batches = self.inbox.qsize()
         self.bus.publish("logs.received", events=len(df), origin=origin,

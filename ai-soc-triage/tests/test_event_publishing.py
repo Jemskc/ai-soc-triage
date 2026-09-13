@@ -292,3 +292,38 @@ def test_ingest_still_builds_raw_message_when_absent():
     supplied = df["raw_message"].astype(str).str.strip()
     result = supplied.where(supplied != "", rebuilt)
     assert "rundll32.exe" in result.iloc[0]
+
+
+# ── which file did this come from? ───────────────────────────────────────────
+# The origin of an import was published to the event bus and discarded. Once two
+# files had been loaded their events were one undifferentiated pile, and there
+# was no way to answer how many files had been imported at all.
+
+def test_submit_stamps_the_origin_onto_every_row():
+    import inspect
+
+    import autopilot
+
+    src = inspect.getsource(autopilot.Autopilot.submit)
+    assert "ingest_source" in src, "the origin must reach the rows, not just the bus"
+    assert "self._sources" in src, "and be counted so the UI can list imports"
+
+
+def test_log_rows_expose_the_source():
+    import pipeline
+
+    row = pipeline._to_log_row(
+        {"timestamp": "2015-01-02 00:00:00", "event_id": "4624",
+         "computer": "C1", "user": "U1", "ingest_source": "golden.jsonl"},
+        0, None)
+    assert row["ingestSource"] == "golden.jsonl"
+
+
+def test_log_rows_fall_back_rather_than_showing_nothing():
+    import pipeline
+
+    row = pipeline._to_log_row(
+        {"timestamp": "x", "event_id": "4624", "source_file": "evtx-sample"}, 0, None)
+    assert row["ingestSource"] == "evtx-sample"
+    bare = pipeline._to_log_row({"timestamp": "x", "event_id": "4624"}, 0, None)
+    assert bare["ingestSource"] == "unknown"

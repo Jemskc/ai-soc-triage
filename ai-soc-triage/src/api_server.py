@@ -868,6 +868,51 @@ def get_incident(incident_id: str):
     return {"error": f"unknown incident {incident_id}"}
 
 
+@app.get("/sources")
+def list_sources():
+    """Every log file or feed that has been imported, with its event count.
+
+    Counted from the events actually published rather than only from the
+    autopilot's in-memory tally, so the figures survive a restart and match
+    what the log view will show when a source is selected.
+    """
+    live = {}
+    try:
+        pilot = _autopilot.get_autopilot(engine_factory=_engine_factory)
+        live = {s["name"]: s for s in pilot.sources()}
+    except Exception:  # noqa: BLE001
+        pass
+
+    published: dict[str, int] = {}
+    path = _pipeline.EVENTS_PATH
+    if path.exists():
+        try:
+            for row in json.loads(path.read_text(encoding="utf-8")):
+                name = str(row.get("ingestSource") or "unknown")
+                published[name] = published.get(name, 0) + 1
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    names = sorted(set(live) | set(published))
+    sources = []
+    for name in names:
+        entry = live.get(name, {})
+        sources.append({
+            "name": name,
+            "events_ingested": entry.get("events", published.get(name, 0)),
+            "events_in_log_view": published.get(name, 0),
+            "batches": entry.get("batches", 0),
+            "first_seen": entry.get("first_seen"),
+            "last_seen": entry.get("last_seen"),
+        })
+    sources.sort(key=lambda s: -(s["events_in_log_view"] or s["events_ingested"]))
+    return {
+        "sources": sources,
+        "count": len(sources),
+        "total_events": sum(s["events_in_log_view"] for s in sources),
+    }
+
+
 @app.get("/events")
 def get_events(
     offset: int = 0,
@@ -877,6 +922,7 @@ def get_events(
     host: str | None = None,
     user: str | None = None,
     event_id: str | None = None,
+    source: str | None = None,
 ):
     """Raw event log, paginated and filterable — the SIEM log view.
 
@@ -897,6 +943,8 @@ def get_events(
         if host and host.lower() not in str(row.get("host", "")).lower():
             return False
         if user and user.lower() not in str(row.get("user", "")).lower():
+            return False
+        if source and str(row.get("ingestSource", "")) != source:
             return False
         if event_id and str(row.get("eventId", "")) != str(event_id):
             return False
