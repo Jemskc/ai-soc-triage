@@ -43,10 +43,42 @@ def _to_lower(value: Any) -> str:
     return str(value).strip().lower()
 
 
+# The shapes actually seen in this pipeline, most common first. Tried before
+# falling back to pandas.
+_TIMESTAMP_FORMATS = (
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M:%S.%f",
+    "%Y-%m-%dT%H:%M:%S.%f",
+    "%Y-%m-%d %H:%M",
+)
+
+
 def _parse_timestamp(value: Any) -> datetime | None:
+    """Parse one timestamp.
+
+    pd.to_datetime on a scalar is designed for vectorised use and carries
+    enormous per-call overhead: 50,000 scalar calls took 15.1 of the 16 seconds
+    one threshold rule spent, which at a million events is most of an hour. A
+    strptime fast path over the formats this pipeline actually produces is
+    roughly two orders of magnitude cheaper, and pandas still handles anything
+    unusual.
+    """
     if value is None or value == "":
         return None
-    parsed = pd.to_datetime(value, errors="coerce", utc=True)
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+
+    text = str(value).strip()
+    if not text:
+        return None
+    for fmt in _TIMESTAMP_FORMATS:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+
+    parsed = pd.to_datetime(text, errors="coerce", utc=True)
     if pd.isna(parsed):
         return None
     return parsed.tz_convert(None).to_pydatetime()
@@ -219,37 +251,57 @@ def apply_threshold_rule(rule: dict[str, Any], df: pd.DataFrame) -> list[dict[st
 
     alerts: list[dict[str, Any]] = []
     for key, events in grouped.items():
-        events.sort(key=lambda e: _parse_timestamp(e.get("timestamp")) or datetime.min)
+        # Timestamps are parsed once per event, not once per comparison. The
+        # previous version re-parsed the same string every time the window
+        # advanced, which on a busy host is thousands of redundant parses.
+        stamped = []
+        for event in events:
+            parsed = _parse_timestamp(event.get("timestamp"))
+            if parsed is not None:
+                stamped.append((parsed, event))
+        stamped.sort(key=lambda pair: pair[0])
+
         start_idx = 0
         best_count = 0
         best_ts = ""
         best_window: list[dict[str, Any]] = []
 
-        for end_idx in range(len(events)):
-            end_time = _parse_timestamp(events[end_idx].get("timestamp"))
-            if end_time is None:
-                continue
+        # The distinct set is maintained incrementally — one value added as the
+        # window's right edge advances, one removed as the left edge does.
+        # Rebuilding it from the whole window at every position made this
+        # quadratic: on a million events RULE-011 and RULE-014 took 118 of the
+        # 126 seconds all fifteen rules spent, and 46 of the funnel's 48
+        # minutes. Same answer, linear cost.
+        seen_counts: dict[str, int] = defaultdict(int)
+        distinct_now = 0
+
+        for end_idx, (end_time, end_event) in enumerate(stamped):
+            if distinct_field:
+                value = str(end_event.get(distinct_field) or "")
+                if value:
+                    if seen_counts[value] == 0:
+                        distinct_now += 1
+                    seen_counts[value] += 1
+
             while start_idx <= end_idx:
-                start_time = _parse_timestamp(events[start_idx].get("timestamp"))
-                if start_time is None:
-                    start_idx += 1
-                    continue
+                start_time = stamped[start_idx][0]
                 if (end_time - start_time).total_seconds() <= window_seconds:
                     break
+                if distinct_field:
+                    leaving = str(stamped[start_idx][1].get(distinct_field) or "")
+                    if leaving:
+                        seen_counts[leaving] -= 1
+                        if seen_counts[leaving] == 0:
+                            distinct_now -= 1
                 start_idx += 1
 
-            window = events[start_idx : end_idx + 1]
-            if distinct_field:
-                measured = len({
-                    str(e.get(distinct_field) or "") for e in window
-                } - {""})
-            else:
-                measured = len(window)
+            measured = distinct_now if distinct_field else (end_idx - start_idx + 1)
 
             if measured > best_count:
                 best_count = measured
-                best_ts = str(events[end_idx].get("timestamp") or "")
-                best_window = window
+                best_ts = str(end_event.get("timestamp") or "")
+                # Materialised only when a new best is found, which is rare.
+                best_window = [ev for _, ev in stamped[start_idx : end_idx + 1]]
 
         if best_count > threshold:
             sample = best_window[-1] if best_window else {}

@@ -218,3 +218,64 @@ def test_streaming_holds_memory_flat(events):
         chunked.observe(chunk)
     assert whole.events == chunked.events
     assert whole.process_counts == chunked.process_counts
+
+
+# ── the sliding window must stay correct after being made linear ─────────────
+# RULE-011 and RULE-014 rebuilt the distinct set from the whole window at every
+# position, which is quadratic: on a million events those two rules took 118 of
+# the 126 seconds all fifteen spent. The incremental version must give exactly
+# the same answers, so these cases pin the boundary behaviour.
+
+def _fanout_rule():
+    return {"id": "T-1", "name": "fanout", "type": "threshold", "severity": "high",
+            "threshold": 5, "window_seconds": 60, "group_by": "source_ip",
+            "distinct_field": "computer",
+            "conditions": [{"field": "event_id", "operator": "equals", "value": "4624"}]}
+
+
+def _rows():
+    rows = []
+    for i in range(8):          # 8 hosts inside the window -> fires
+        rows.append({"timestamp": f"2015-01-01 00:00:{i*5:02d}", "source_ip": "C999",
+                     "computer": f"H{i}", "user": "u1", "event_id": "4624",
+                     "raw_message": "x"})
+    for i in range(8):          # 8 hosts but spread over hours -> must not
+        rows.append({"timestamp": f"2015-01-01 0{1+i//4}:{(i*13)%60:02d}:00",
+                     "source_ip": "C888", "computer": f"K{i}", "user": "u2",
+                     "event_id": "4624", "raw_message": "x"})
+    for i in range(20):         # one host many times -> must not
+        rows.append({"timestamp": f"2015-01-01 00:00:{i*2:02d}", "source_ip": "C777",
+                     "computer": "SAME", "user": "u3", "event_id": "4624",
+                     "raw_message": "x"})
+    return rows
+
+
+def test_fanout_fires_only_on_genuine_spread():
+    import pandas as pd
+    from detector import apply_threshold_rule
+
+    alerts = apply_threshold_rule(_fanout_rule(), pd.DataFrame(_rows()))
+    assert {a.get("source_ip") for a in alerts} == {"C999"}
+
+
+def test_volume_alone_does_not_trigger_a_distinct_rule():
+    """Fifty authentications to one server are routine; five to five are not."""
+    import pandas as pd
+    from detector import apply_threshold_rule
+
+    rows = [{"timestamp": f"2015-01-01 00:00:{i:02d}", "source_ip": "C1",
+             "computer": "ONE", "user": "u", "event_id": "4624", "raw_message": "x"}
+            for i in range(50)]
+    assert apply_threshold_rule(_fanout_rule(), pd.DataFrame(rows)) == []
+
+
+def test_window_edge_is_inclusive_at_the_boundary():
+    """An event exactly window_seconds old is still inside the window."""
+    import pandas as pd
+    from detector import apply_threshold_rule
+
+    rows = [{"timestamp": f"2015-01-01 00:0{i//6}:{(i*10) % 60:02d}", "source_ip": "C1",
+             "computer": f"H{i}", "user": "u", "event_id": "4624", "raw_message": "x"}
+            for i in range(7)]          # 0,10,20,30,40,50,60 seconds apart
+    alerts = apply_threshold_rule(_fanout_rule(), pd.DataFrame(rows))
+    assert alerts, "7 distinct hosts within 60s must trigger a threshold of 5"
