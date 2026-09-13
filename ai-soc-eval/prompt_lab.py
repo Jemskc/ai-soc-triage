@@ -221,17 +221,23 @@ def _evidence_block(inc: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-PROMPTS: dict[str, dict[str, str]] = {}
+PROMPTS: dict[str, Any] = {}
+# Prompts that ignore the retrieved knowledge. Pairing these with four
+# retrievers would run the same prompt four times and report the differences as
+# if retrieval had caused them.
+PROMPTS_WITHOUT_RAG: set[str] = set()
 
 
-def prompt(name: str):
+def prompt(name: str, uses_rag: bool = True):
     def wrap(fn):
         PROMPTS[name] = fn
+        if not uses_rag:
+            PROMPTS_WITHOUT_RAG.add(name)
         return fn
     return wrap
 
 
-@prompt("p1_minimal")
+@prompt("p1_minimal", uses_rag=False)
 def _p1(inc, knowledge):
     """No role, no rules, no knowledge. The control arm: everything else has to
     beat answering cold."""
@@ -241,7 +247,7 @@ def _p1(inc, knowledge):
     )
 
 
-@prompt("p2_soc_role")
+@prompt("p2_soc_role", uses_rag=False)
 def _p2(inc, knowledge):
     """Role and output contract, still no retrieval — isolates how much the
     role framing alone is worth."""
@@ -415,6 +421,74 @@ def _r3(kb, inc, top_k=4):
 
 
 # ---------------------------------------------------------------------------
+# Non-LLM baseline
+# ---------------------------------------------------------------------------
+
+def logistic_baseline(incidents: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Logistic regression on the incident features, as a control.
+
+    The published work on this task (Expert Systems with Applications, 2026)
+    found a Linear SVM beating every LLM tested on F1 for SOC alert
+    classification. An LLM result with no simple baseline beside it cannot be
+    read: if plain logistic regression on six numeric features matches the
+    model, the model is not earning its 9 seconds and 28GB of GPU.
+
+    Trained on DEV and scored on TEST, the same split the prompts use, so the
+    comparison is like for like.
+    """
+    try:
+        from sklearn.linear_model import LogisticRegression
+    except ImportError:
+        return None
+
+    def features(inc: dict[str, Any]) -> list[float]:
+        f = inc.get("auth_facts") or {}
+        return [
+            float(f.get("distinct_destinations", 0) or 0),
+            float(f.get("distinct_accounts", 0) or 0),
+            float(f.get("distinct_source_hosts", 0) or 0),
+            float(f.get("failed_authentications", 0) or 0),
+            float(f.get("machine_accounts", 0) or 0),
+            float(f.get("destinations_per_source", 0) or 0),
+            float(inc.get("alert_count", 0) or 0),
+            float(len(inc.get("rules_fired", []) or [])),
+        ]
+
+    dev = [i for i in incidents if i["_split"] == "dev"]
+    test = [i for i in incidents if i["_split"] == "test"]
+    if not dev or not test:
+        return None
+    if len({i["_malicious"] for i in dev}) < 2:
+        return None
+
+    model = LogisticRegression(max_iter=2000, class_weight="balanced")
+    model.fit([features(i) for i in dev], [int(i["_malicious"]) for i in dev])
+
+    out: dict[str, Any] = {}
+    for name, rows in (("dev", dev), ("test", test)):
+        pred = model.predict([features(i) for i in rows])
+        m = Metrics()
+        for i, yhat in zip(rows, pred):
+            truth = bool(i["_malicious"])
+            if yhat and truth: m.tp += 1
+            elif yhat: m.fp += 1
+            elif truth: m.fn += 1
+            else: m.tn += 1
+        out[name] = m.to_dict()
+    out["features"] = [
+        "distinct_destinations", "distinct_accounts", "distinct_source_hosts",
+        "failed_authentications", "machine_accounts", "destinations_per_source",
+        "alert_count", "rules_fired",
+    ]
+    out["note"] = (
+        "Trained on DEV, scored on TEST. If the LLM does not clearly beat this, "
+        "the honest architecture is statistics for classification and the model "
+        "for explanation."
+    )
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Incident preparation
 # ---------------------------------------------------------------------------
 
@@ -552,7 +626,7 @@ class RunResult:
 
 def run_config(prompt_name: str, retriever_name: str, incidents: list[dict],
                split: str, backend, kb, top_k: int = 4,
-               verbose: bool = False) -> RunResult:
+               verbose: bool = False, batch_size: int = 8) -> RunResult:
     import prompts as prompt_mod
 
     build = PROMPTS[prompt_name]
@@ -561,20 +635,41 @@ def run_config(prompt_name: str, retriever_name: str, incidents: list[dict],
     conf_points: list[tuple[float, int]] = []
 
     subset = [i for i in incidents if i["_split"] == split]
-    for n, inc in enumerate(subset, 1):
-        knowledge = retrieve(kb, inc, top_k) if kb else []
-        system, user = build(inc, knowledge)
 
-        t0 = time.time()
+    # Retrieval first, for the whole subset, then one batched generation pass.
+    prepared = []
+    for inc in subset:
+        knowledge = retrieve(kb, inc, top_k) if kb else []
+        prepared.append((inc, knowledge, build(inc, knowledge)))
+
+    t0 = time.time()
+    if hasattr(backend, "generate_batch"):
         try:
-            raw = backend.generate_text(system=system, user=user, max_tokens=320)
+            raws = backend.generate_batch(
+                [pr for _, _, pr in prepared], max_tokens=320, batch_size=batch_size)
         except Exception as exc:  # noqa: BLE001
-            print(f"    [!] model error on {inc['incident_id']}: {exc}", flush=True)
-            res.parse_failures += 1
-            res.calls += 1
-            continue
-        res.latencies.append(time.time() - t0)
+            print(f"    [!] batch failed ({exc}); falling back one at a time",
+                  flush=True)
+            raws = None
+    else:
+        raws = None
+    if raws is None:
+        raws = []
+        for _, _, (system, user) in prepared:
+            try:
+                raws.append(backend.generate_text(
+                    system=system, user=user, max_tokens=320))
+            except Exception as exc:  # noqa: BLE001
+                print(f"    [!] model error: {exc}", flush=True)
+                raws.append("")
+    per_case = (time.time() - t0) / max(1, len(prepared))
+
+    for n, ((inc, knowledge, _), raw) in enumerate(zip(prepared, raws), 1):
+        res.latencies.append(per_case)
         res.calls += 1
+        if not raw:
+            res.parse_failures += 1
+            continue
 
         try:
             payload = prompt_mod.extract_json(raw)
@@ -673,8 +768,17 @@ def main() -> int:
     ap.add_argument("--max-benign", type=int, default=120,
                     help="benign incidents to evaluate (positives are always all kept)")
     ap.add_argument("--top-k", type=int, default=4)
+    ap.add_argument("--batch-size", type=int, default=8,
+                    help="prompts per batched generation call")
     ap.add_argument("--out", type=Path, default=BASE_DIR / "prompt_lab_results.json")
     ap.add_argument("--list", action="store_true", help="list variants and exit")
+    # The funnel costs ~10 minutes on 200k events and is identical every run.
+    ap.add_argument("--save-incidents", type=Path,
+                    help="cache the labelled incidents after the funnel")
+    ap.add_argument("--load-incidents", type=Path,
+                    help="reuse cached incidents and skip the funnel")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="prepare and report label counts, then stop")
     args = ap.parse_args()
 
     if args.list:
@@ -689,7 +793,19 @@ def main() -> int:
               f"--no-ai --save-sample {args.sample.name}")
         return 1
 
-    incidents, incidents_total, stats = prepare(args.sample, args.max_benign)
+    if args.load_incidents and args.load_incidents.exists():
+        blob = json.loads(args.load_incidents.read_text())
+        incidents = blob["incidents"]
+        incidents_total = blob["incidents_total"]
+        stats = blob["stats"]
+        print(f"[+] reusing cached incidents from {args.load_incidents}", flush=True)
+    else:
+        incidents, incidents_total, stats = prepare(args.sample, args.max_benign)
+        if args.save_incidents:
+            args.save_incidents.write_text(json.dumps(
+                {"incidents": incidents, "incidents_total": incidents_total,
+                 "stats": stats}, default=str))
+            print(f"[+] incidents cached -> {args.save_incidents}", flush=True)
     # lanl_eval records the corpus span as span_days.
     days = max(1.0, stats.get("span_days") or 27.85)
 
@@ -699,6 +815,10 @@ def main() -> int:
           f"DEV {len(dev)} ({sum(i['_malicious'] for i in dev)} malicious), "
           f"TEST {len(test)} ({sum(i['_malicious'] for i in test)} malicious)",
           flush=True)
+
+    if args.dry_run:
+        print("\n[dry run] no model was called.")
+        return 0
 
     from knowledge_base import get_kb
     from llm_backend import get_llm_backend
@@ -710,7 +830,13 @@ def main() -> int:
 
     combos: list[tuple[str, str]] = []
     if args.sweep:
-        combos = [(p, r) for p in PROMPTS for r in RETRIEVERS]
+        # A prompt that never reads the knowledge block is run once, against
+        # the null retriever. Running it four times would produce four
+        # near-identical rows and invite reading noise as a retrieval effect.
+        combos = [
+            (p, r) for p in PROMPTS for r in RETRIEVERS
+            if p not in PROMPTS_WITHOUT_RAG or r == "r0_none"
+        ]
     elif args.config:
         if "+" in args.config:
             p, r = args.config.split("+", 1)
@@ -738,7 +864,8 @@ def main() -> int:
         print(f"[+] {p} + {r} on {split.upper()} "
               f"({len([i for i in incidents if i['_split'] == split])} incidents)",
               flush=True)
-        res = run_config(p, r, incidents, split, backend, kb, args.top_k)
+        res = run_config(p, r, incidents, split, backend, kb, args.top_k,
+                         batch_size=args.batch_size)
         s = summarise(res, incidents_total, days)
         results.append({**s, "cases": res.cases})
         print_row(s)
@@ -754,6 +881,18 @@ def main() -> int:
     for s in ranked:
         print_row(s)
 
+    base = logistic_baseline(incidents)
+    if base:
+        b = base[split]
+        print()
+        print(f"  {'BASELINE logistic regression':28s} F1 "
+              f"{'  n/a' if b['f1'] is None else format(b['f1'], '5.3f')}  "
+              f"P {'  n/a' if b['precision'] is None else format(b['precision'], '5.3f')}  "
+              f"R {'  n/a' if b['recall'] is None else format(b['recall'], '5.3f')}  "
+              f"MCC {'  n/a' if b['mcc'] is None else format(b['mcc'], '5.3f')}")
+        print("  (no model, no GPU — anything the LLM cannot beat here it has "
+              "not earned)")
+
     best = ranked[0] if ranked else None
     payload = {
         "split": split,
@@ -762,6 +901,7 @@ def main() -> int:
         "incidents_total": incidents_total,
         "results": results,
         "best_by_mcc": best["config"] if best else None,
+        "logistic_baseline": base,
         "caveat": (
             "DEV numbers are a development aid, not a result. Only a --final "
             "run against the TEST split, with a configuration chosen before "

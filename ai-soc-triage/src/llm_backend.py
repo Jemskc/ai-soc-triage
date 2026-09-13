@@ -236,6 +236,60 @@ class LocalHFBackend(LLMBackend):
         stripped = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
         return stripped if stripped else response
 
+    def generate_batch(
+        self,
+        prompts: list[tuple[str, str]],
+        max_tokens: int = 320,
+        batch_size: int = 8,
+    ) -> list[str]:
+        """Generate for many (system, user) pairs at once.
+
+        One-at-a-time generation leaves the GPU mostly idle: a short JSON
+        verdict decodes a few dozen tokens, and the fixed cost of a forward
+        pass dominates. Batching amortises that across prompts and turns a
+        seven-hour sweep into something that finishes in an evening.
+
+        Decoder-only models must be LEFT-padded for batched generation. With
+        right padding the pad tokens sit between the prompt and the first
+        generated token, and the model continues from padding rather than from
+        the prompt — it produces fluent nonsense, which is far worse than an
+        error because it looks like a real answer.
+        """
+        import torch
+
+        self._load()
+        tok = self._tokenizer
+        previous_side = tok.padding_side
+        if tok.pad_token_id is None:
+            tok.pad_token = tok.eos_token
+        tok.padding_side = "left"
+
+        out: list[str] = []
+        try:
+            for start in range(0, len(prompts), batch_size):
+                chunk = prompts[start:start + batch_size]
+                texts = [self._build_input(sys_, usr, None) for sys_, usr in chunk]
+                enc = tok(texts, return_tensors="pt", padding=True).to(
+                    self._model.device)
+
+                with torch.inference_mode():
+                    ids = self._model.generate(
+                        **enc,
+                        max_new_tokens=min(max_tokens, self._max_new_tokens),
+                        do_sample=False,
+                        pad_token_id=tok.pad_token_id,
+                    )
+
+                width = enc["input_ids"].shape[1]
+                for row in ids:
+                    text = tok.decode(row[width:], skip_special_tokens=True)
+                    cleaned = re.sub(r"<think>.*?</think>", "", text,
+                                     flags=re.DOTALL).strip()
+                    out.append(cleaned if cleaned else text)
+        finally:
+            tok.padding_side = previous_side
+        return out
+
     def generate_stream(
         self,
         system: str,
