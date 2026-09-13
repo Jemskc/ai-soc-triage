@@ -12,7 +12,7 @@ const FIELD_MAP = {
   user:      ['user', 'username', 'User', 'account', 'userId', 'user_name', 'Username', 'AccountName'],
   host:      ['host', 'hostname', 'Host', 'computer', 'device', 'ComputerName', 'machine', 'Hostname'],
   message:   ['message', 'msg', 'description', 'event', 'log', 'Message', 'EventMessage', 'details'],
-  rule:      ['rule', 'ruleName', 'alert', 'eventType', 'category', 'event_type', 'signature', 'EventID', 'rule_name'],
+  rule:      ['rule', 'ruleName', 'alert', 'eventType', 'category', 'event_type', 'signature', 'EventID', 'event_id', 'rule_name'],
   source:    ['source', 'sourceName', 'logSource', 'product', 'log_source', 'Source'],
 };
 
@@ -26,7 +26,13 @@ function pickField(obj, candidates) {
 }
 
 function normalize(raw, index) {
-  const ts = pickField(raw, FIELD_MAP.timestamp) || new Date().toISOString();
+  // Some corpora carry a relative second offset rather than a date — LANL
+  // counts seconds from the start of capture. Rendering that as a date gives
+  // "Invalid Date" in every row, so convert it against the capture epoch.
+  const rawTs = pickField(raw, FIELD_MAP.timestamp);
+  const ts = (rawTs !== undefined && rawTs !== null && /^\d+$/.test(String(rawTs)))
+    ? new Date((1420070400 + Number(rawTs)) * 1000).toISOString()
+    : (rawTs || new Date().toISOString());
   const severityRaw = pickField(raw, FIELD_MAP.severity);
   const severity = normalizeSeverity(severityRaw || inferSeverity(raw));
   const sourceIP = pickField(raw, FIELD_MAP.sourceIP) || extractIP(JSON.stringify(raw)) || 'Unknown';
@@ -132,16 +138,51 @@ function parsePlainText(text) {
     });
 }
 
+/**
+ * One JSON object per line — the format large corpora actually ship in,
+ * because it can be produced and consumed a line at a time rather than held
+ * whole. A malformed line is skipped rather than failing the import: a single
+ * bad record at line 400,000 should not discard the other 399,999.
+ */
+function parseJSONL(text) {
+  const rows = [];
+  let skipped = 0;
+  for (const line of text.split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      rows.push(JSON.parse(t));
+    } catch {
+      skipped += 1;
+    }
+  }
+  if (skipped) {
+    console.warn(`parseJSONL: skipped ${skipped} malformed line(s)`);
+  }
+  return rows;
+}
+
 export async function parseLogFile(file, onProgress) {
   _idCounter = 1;
   return new Promise((resolve, reject) => {
+    // Reading a very large file as one string can exhaust the tab before any
+    // of this runs. Say so rather than letting the browser die silently.
+    const HUGE_MB = 150;
+    if (file.size > HUGE_MB * 1024 * 1024) {
+      reject(new Error(
+        `${(file.size / 1048576).toFixed(0)}MB is too large to parse in a browser. ` +
+        `Use scripts/ingest_golden.py, which streams it to the server.`));
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = e => {
       try {
         const text = e.target.result;
         const ext = file.name.split('.').pop().toLowerCase();
         let raw = [];
-        if (ext === 'json') raw = parseJSON(text);
+        if (ext === 'jsonl' || ext === 'ndjson') raw = parseJSONL(text);
+        else if (ext === 'json') raw = parseJSON(text);
         else if (ext === 'csv') raw = parseCSV(text);
         else raw = parsePlainText(text);
         if (!raw.length) { reject(new Error('No records found')); return; }

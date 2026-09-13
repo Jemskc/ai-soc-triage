@@ -167,6 +167,31 @@ export const api = {
   enrichGraph: (graph) =>
     request('/enrich/graph', { method: 'POST', body: JSON.stringify({ payload: graph }) }),
 
+  // Send parsed events to the analysis pipeline, in batches.
+  //
+  // Importing used to load a file into the browser and stop there — the
+  // funnel and the agents never saw it, so every tab kept showing whatever
+  // the server had ingested at boot and the import looked like it had done
+  // nothing. Anything the analyst imports has to reach the server or the
+  // button is a lie.
+  ingest: (events, origin = 'browser-import') =>
+    request('/ingest', { method: 'POST', body: JSON.stringify({ events, origin }) }),
+
+  ingestBatched: async (events, origin = 'browser-import', onProgress = null,
+                        batchSize = 5000) => {
+    let accepted = 0;
+    for (let i = 0; i < events.length; i += batchSize) {
+      const chunk = events.slice(i, i + batchSize);
+      const res = await request('/ingest', {
+        method: 'POST',
+        body: JSON.stringify({ events: chunk, origin }),
+      });
+      accepted += res.accepted || 0;
+      onProgress?.(Math.min(i + batchSize, events.length), events.length);
+    }
+    return accepted;
+  },
+
   // Records an analyst decision on a proposed action. Nothing executes
   // server-side; this is the human gate on destructive steps.
   sendApproval: (body) =>

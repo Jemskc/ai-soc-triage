@@ -49,8 +49,18 @@ export function AnalysisProvider({ children, fallbackLogs = null }) {
           return;
         }
         if (!cancelled) setStatus('idle');
-      } catch {
-        if (!cancelled) setStatus('offline');
+      } catch (err) {
+        // Tell the difference between "no analysis yet" and "you are locked
+        // out". Both used to render the import screen, so an authentication
+        // failure looked exactly like an empty system and the real cause was
+        // invisible.
+        if (cancelled) return;
+        if (String(err?.message || '').startsWith('401')) {
+          setStatus('unauthorised');
+          setError('This API requires a key. Enter it below to continue.');
+        } else {
+          setStatus('offline');
+        }
       }
     })();
     return () => {

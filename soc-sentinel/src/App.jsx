@@ -17,7 +17,9 @@ import { AlertTriangle, Shield, Globe, Users, Loader } from 'lucide-react';
 import { AnalysisProvider, useAnalysis } from './context/AnalysisContext';
 import AnalysisProgress, { DataSourceBadge } from './components/AnalysisProgress';
 import ErrorBoundary from './components/ErrorBoundary';
+import ApiKeyGate from './components/ApiKeyGate';
 import { NAV_LABELS } from './data/navConfig';
+import { api } from './utils/api';
 import AISituationReport from './components/overview/AISituationReport';
 import AnalysisCoverage from './components/AnalysisCoverage';
 import LiveAgentActivity from './components/LiveAgentActivity';
@@ -67,7 +69,7 @@ export default function App() {
 }
 
 function Dashboard() {
-  const { incidentsByUrgency, isReady, events: analysisEvents, metrics } = useAnalysis();
+  const { incidentsByUrgency, isReady, events: analysisEvents, metrics, status, error } = useAnalysis();
   const [logs, setLogs] = useState(null);
   const [fileInfo, setFileInfo] = useState(null);
   const [selectedAlert, setSelectedAlert] = useState(null);
@@ -122,9 +124,33 @@ function Dashboard() {
       setSelectedAlert(null);
       setSelectedLog(null);
       setActiveNav('logs');
-      showToast(`${parsed.length.toLocaleString()} records loaded from ${file.name}`, 'success');
+
+      // Send it to the server as well as showing it. Without this the AI never
+      // sees an imported file, which is what made importing appear to succeed
+      // and change nothing.
+      try {
+        const accepted = await api.ingestBatched(
+          parsed, file.name,
+          (done, total) => setLoadProgress({ done, total }),
+        );
+        showToast(
+          `${parsed.length.toLocaleString()} records from ${file.name} — ` +
+          `${accepted.toLocaleString()} sent for analysis`, 'success');
+      } catch (err) {
+        // The viewer still works; be explicit that the AI will not see this.
+        showToast(
+          `Loaded ${parsed.length.toLocaleString()} records into the viewer, but the ` +
+          `server rejected them (${err.message}). The AI will not analyse this file.`);
+      }
     } catch (err) {
-      showToast('Could not parse file. Try JSON, CSV, or plain text log format.');
+      // Show what actually went wrong. This used to replace every failure with
+      // "Could not parse file", including the size guard's own explanation of
+      // why a 274MB file cannot be read in a browser and what to use instead —
+      // so the one message written to be useful was the one thrown away.
+      showToast(
+        err?.message
+          ? `Import failed: ${err.message}`
+          : 'Could not parse file. Try JSON, JSONL, CSV, or plain text log format.');
     } finally {
       setLoading(false);
     }
@@ -188,6 +214,10 @@ function Dashboard() {
   }
 
   function renderTab() {
+    // Locked out is not the same as empty. Showing the import screen here sent
+    // the analyst looking for a file when the server already had the answer
+    // and was simply refusing the request.
+    if (status === 'unauthorised') return <ApiKeyGate message={error} />;
     if (!loaded) return <ImportScreen onImport={handleImport} onSampleData={handleSampleData} />;
 
     switch (activeNav) {
