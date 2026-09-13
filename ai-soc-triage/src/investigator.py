@@ -30,6 +30,7 @@ manufacture a conclusion. Running out of steps produces an explicit
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -78,6 +79,12 @@ HOW TO WORK:
 6. Conclude as soon as you can justify it. Do not pad the investigation.
 7. If the evidence genuinely does not support a conclusion, conclude anyway
    with verdict UNKNOWN and say what you would need. That is a valid outcome.
+8. At least one evidence item MUST be something a tool returned — a value you
+   did not have when you started. Measured over 27 investigations, 89% of
+   conclusions cited only the opening brief: the tools were called, the results
+   came back, and the verdict was written from the alert alone. If nothing you
+   found changed your reading, say so in the summary and cite the observation
+   that confirmed it.
 
 RESPOND WITH EXACTLY ONE OF THESE:
 
@@ -113,7 +120,11 @@ Return exactly one JSON object and nothing else:
 
 Decide on the evidence you have. UNKNOWN is honest when the evidence genuinely
 does not support a conclusion — but do not default to it simply because you
-would have liked more."""
+would have liked more.
+
+At least one evidence item must be a value a tool returned during this
+investigation, not one copied from the incident brief. Cite what you found,
+including a finding that confirmed the alert was ordinary."""
 
 
 @dataclass
@@ -159,6 +170,17 @@ class Investigation:
         }
 
 
+def _atoms(value: Any) -> list[str]:
+    """Split a cited value into individually checkable pieces.
+
+    Verdicts cite several things in one string ("ppldump.exe, lsass.exe") or
+    wrap a list ("[4765]"). Matching those whole finds nothing and would reject
+    honest conclusions.
+    """
+    text = re.sub(r"\s+", " ", str(value)).strip().lower().strip("[](){}")
+    return [p for p in (q.strip(" '\"[](){}") for q in re.split(r"[,;/]| and ", text)) if p]
+
+
 class Investigator:
     """Runs one incident to a conclusion."""
 
@@ -167,6 +189,8 @@ class Investigator:
                  on_step=None) -> None:
         self.backend = backend
         self.tools = toolbox
+        self._observations = ""
+        self._brief_values = ""
         self.max_steps = max_steps
         # Called after every step so the UI can render the investigation as it
         # happens rather than after it finishes.
@@ -263,6 +287,20 @@ class Investigator:
         # and an unenforced grounding rule is the honour system.
         retrieved: list[dict[str, Any]] = list((resume or {}).get("retrieved", []))
         transcript: list[dict[str, Any]] = list((resume or {}).get("transcript", []))
+        # Everything the tools returned, and everything that was known before
+        # they ran. The gap between the two is what the investigation actually
+        # contributed, and _enforce requires the conclusion to land in it.
+        self._observations = " ".join(
+            str(t.get("observation", "")) for t in transcript).lower()
+        self._brief_values = " ".join(str(v) for v in (
+            [incident.get("incident_id"), incident.get("first_seen"),
+             incident.get("alert_count"), incident.get("severity")]
+            + list(incident.get("hosts") or [])
+            + list(incident.get("users") or [])
+            + [str(e) for e in (incident.get("event_ids") or [])]
+            + [str(x) for x in (incident.get("processes") or [])]
+            + [r.get("rule", "") for r in (incident.get("rules_fired") or [])]
+        )).lower()
         started = time.time()
         seen_calls: set[str] = set((resume or {}).get("seen_calls", []))
         used_tools: set[str] = set((resume or {}).get("used_tools", []))
@@ -492,11 +530,44 @@ class Investigator:
                 f"from retrieval. Available: {', '.join(available)}. Cite one "
                 'of those or use "UNKNOWN".'
             )
+
+        # 3. The investigation has to be load-bearing. Measured across 27
+        #    completed investigations, 89% of conclusions cited only values
+        #    already present in the opening brief: eleven model calls and
+        #    ninety seconds spent, and the verdict was the one available at
+        #    step zero. That is not an investigation, it is a preamble.
+        #
+        #    Rejected once, like the others — a model that cannot point at
+        #    anything it found should finish rather than argue.
+        if self._observations and "yield_rejection" not in seen:
+            brief = self._brief_values
+            cited = []
+            for item in verdict.get("evidence") or []:
+                value = item.get("value") if isinstance(item, dict) else item
+                cited.extend(_atoms(value))
+            checkable = [c for c in cited if len(c) >= 3]
+            if checkable and not any(
+                c in self._observations and c not in brief for c in checkable
+            ):
+                seen.add("yield_rejection")
+                return (
+                    "Every value you cited was already in the incident brief "
+                    "before you called a single tool. Cite at least one thing "
+                    "your tools actually returned — including a finding that "
+                    "confirmed the activity was ordinary, which is a real "
+                    "result. If nothing you found bears on the verdict, say "
+                    "that explicitly in analyst_summary."
+                )
         return None
 
     def _record(self, result: Investigation, step: int, tool: str,
                 args: dict[str, Any], thought: str, observation: str,
                 elapsed: float = 0.0, error: str = "") -> None:
+        # Accumulate what the tools have returned so _enforce can tell a
+        # discovery from a restatement of the brief.
+        if tool != "conclude" and observation:
+            self._observations = (
+                getattr(self, "_observations", "") + " " + observation.lower())
         entry = {
             "step": step,
             "thought": thought,

@@ -231,3 +231,77 @@ def test_provenance_lets_a_stale_verdict_be_rejected():
     current = [r for r in rows
                if (r.get("produced_by") or {}).get("code_version") == CODE_VERSION]
     assert len(current) == 1
+
+
+# ── the investigation must be load-bearing ────────────────────────────────────
+# Measured across 27 completed investigations: 89% of conclusions cited only
+# values already in the opening brief. Eleven model calls and ninety seconds
+# were spent, and the verdict was the one available at step zero.
+
+def _investigator():
+    from investigator import Investigator
+
+    inv = Investigator.__new__(Investigator)
+    inv.backend = None
+    inv.tools = None
+    inv._observations = ""
+    inv._brief_values = ""
+    return inv
+
+
+def test_conclusion_citing_only_the_brief_is_rejected():
+    inv = _investigator()
+    inv._brief_values = "pc01 lsass.exe mimikatz credential dumping behavior 16"
+    inv._observations = "query_identity returned failed_logons 0 hosts_reached 2 svchost.exe"
+
+    verdict = {
+        "verdict": "ESCALATE", "urgency_score": 8, "confidence": 0.85,
+        "analyst_summary": "looks bad", "mitre_technique": "UNKNOWN",
+        "evidence": [{"field": "processes", "value": "lsass.exe", "why": "x"},
+                     {"field": "alert_count", "value": "16", "why": "y"}],
+    }
+    rejection = inv._enforce(verdict, [], step=9, seen=set())
+    assert rejection is not None
+    assert "already in the incident brief" in rejection
+
+
+def test_conclusion_citing_something_a_tool_found_is_accepted():
+    inv = _investigator()
+    inv._brief_values = "pc01 lsass.exe mimikatz credential dumping behavior 16"
+    inv._observations = "query_identity returned failed_logons 0 and psexesvc.exe on wrkstn-9"
+
+    verdict = {
+        "verdict": "ESCALATE", "urgency_score": 8, "confidence": 0.85,
+        "analyst_summary": "spread", "mitre_technique": "UNKNOWN",
+        "evidence": [{"field": "processes", "value": "lsass.exe", "why": "x"},
+                     {"field": "discovered", "value": "psexesvc.exe", "why": "found on wrkstn-9"}],
+    }
+    assert inv._enforce(verdict, [], step=9, seen=set()) is None
+
+
+def test_yield_rejection_fires_only_once():
+    """A model that cannot point at a finding should finish, not argue."""
+    inv = _investigator()
+    inv._brief_values = "lsass.exe"
+    inv._observations = "nothing relevant here"
+    verdict = {
+        "verdict": "ESCALATE", "urgency_score": 8, "confidence": 0.8,
+        "analyst_summary": "s", "mitre_technique": "UNKNOWN",
+        "evidence": [{"field": "processes", "value": "lsass.exe", "why": "x"}],
+    }
+    seen = set()
+    assert inv._enforce(verdict, [], step=9, seen=seen) is not None
+    assert inv._enforce(verdict, [], step=10, seen=seen) is None
+
+
+def test_no_observations_yet_means_no_yield_rejection():
+    """Before any tool has run there is nothing to have discovered."""
+    inv = _investigator()
+    inv._brief_values = "lsass.exe"
+    inv._observations = ""
+    verdict = {
+        "verdict": "UNKNOWN", "urgency_score": 5, "confidence": 0.0,
+        "analyst_summary": "s", "mitre_technique": "UNKNOWN",
+        "evidence": [{"field": "processes", "value": "lsass.exe", "why": "x"}],
+    }
+    assert inv._enforce(verdict, [], step=2, seen=set()) is None

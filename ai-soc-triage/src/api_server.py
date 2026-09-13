@@ -35,6 +35,16 @@ async def lifespan(app: FastAPI):
     ignores on_event entirely once a lifespan is supplied, so a hook there
     silently never runs and the server comes up idle.
     """
+    if API_KEY:
+        print(f"[+] API key required ({len(API_KEY)} chars); "
+              f"CORS limited to {', '.join(_ALLOWED_ORIGINS)}")
+    else:
+        print("[!] NO API KEY SET — every endpoint is open to anyone who can "
+              "reach this port,")
+        print("[!] including /approve and /ingest. Fine on a laptop, never on "
+              "a shared host.")
+        print("[!] Set SOC_API_KEY to require one.")
+
     print("[+] Pre-loading model into GPU memory...")
     backend = get_llm_backend()
     if backend is not None:
@@ -69,9 +79,64 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="SOC Triage AI", version="2.0.0", lifespan=lifespan)
 
+# ─────────────────────────────────────────────────────────────
+# Access control
+# ─────────────────────────────────────────────────────────────
+# The API approves response actions, ingests telemetry and exposes every
+# incident in the estate. Unauthenticated on 0.0.0.0, anyone who can route to
+# the port can approve a containment action or read the whole case file. That
+# is not a hardening nicety, it is the first thing a reviewer checks.
+#
+# The key is required whenever SOC_API_KEY is set. It is deliberately NOT
+# generated automatically: a key that appears by itself gets committed, shared
+# and never rotated. Running without one is allowed for local development and
+# says so loudly at boot, so nobody deploys it by accident.
+API_KEY = os.environ.get("SOC_API_KEY", "").strip()
+
+# Paths that must answer before a key can be presented, or that serve the UI
+# which then supplies the key itself.
+_OPEN_PATHS = {"/health", "/", "/favicon.svg", "/icons.svg", "/docs", "/openapi.json"}
+
+
+def _is_open(path: str) -> bool:
+    if path in _OPEN_PATHS:
+        return True
+    # Static assets of the bundled dashboard.
+    return path.startswith("/assets/")
+
+
+@app.middleware("http")
+async def require_api_key(request, call_next):
+    from fastapi.responses import JSONResponse
+
+    if API_KEY and not _is_open(request.url.path):
+        presented = (request.headers.get("x-api-key")
+                     or request.query_params.get("api_key", ""))
+        if presented != API_KEY:
+            # 401 rather than 403: the caller may retry with a key.
+            return JSONResponse(
+                {"error": "missing or invalid API key",
+                 "hint": "send it as the X-API-Key header"},
+                status_code=401,
+            )
+    return await call_next(request)
+
+
+# Origins the browser dashboard is served from. "*" is refused when a key is
+# set: a wildcard origin plus a header-based key means any page the analyst
+# visits can read the whole SOC through their browser.
+_origins_env = os.environ.get("SOC_ALLOWED_ORIGINS", "").strip()
+if _origins_env:
+    _ALLOWED_ORIGINS = [o.strip() for o in _origins_env.split(",") if o.strip()]
+elif API_KEY:
+    _ALLOWED_ORIGINS = ["http://localhost:8000", "http://127.0.0.1:8000",
+                        "http://localhost:5173", "http://127.0.0.1:5173"]
+else:
+    _ALLOWED_ORIGINS = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

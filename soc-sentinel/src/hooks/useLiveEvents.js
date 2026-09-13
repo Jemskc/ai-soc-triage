@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { API_BASE } from '../utils/api';
+import { API_BASE, getApiKey } from '../utils/api';
 
 /**
  * Subscribes to the backend's server-sent event stream.
@@ -28,7 +28,12 @@ export function useLiveEvents({ enabled = true } = {}) {
     function connect() {
       if (cancelled) return;
       try {
-        const es = new EventSource(`${API_BASE}/stream`);
+        // EventSource cannot set request headers, so the key goes in the
+        // query string for this one endpoint. /stream is read-only and the
+        // server accepts either form.
+        const key = getApiKey();
+        const url = `${API_BASE}/stream` + (key ? `?api_key=${encodeURIComponent(key)}` : '');
+        const es = new EventSource(url);
         sourceRef.current = es;
 
         es.onopen = () => !cancelled && setConnected(true);

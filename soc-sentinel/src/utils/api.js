@@ -18,11 +18,48 @@ function defaultApiBase() {
 
 const API_BASE = defaultApiBase();
 
+// Supplied at build time (VITE_API_KEY) or pasted by the analyst and kept in
+// this browser only. Sent as a header rather than a query parameter so it does
+// not end up in server logs or browser history.
+function apiKey() {
+  if (import.meta.env.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
+  try {
+    return localStorage.getItem('soc_api_key') || '';
+  } catch {
+    return '';
+  }
+}
+
+export function getApiKey() {
+  return apiKey();
+}
+
+export function setApiKey(key) {
+  try {
+    if (key) localStorage.setItem('soc_api_key', key);
+    else localStorage.removeItem('soc_api_key');
+  } catch {
+    /* private window: the key simply is not remembered */
+  }
+}
+
+function authHeaders() {
+  const key = apiKey();
+  return key ? { 'X-API-Key': key } : {};
+}
+
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+      ...(options.headers || {}),
+    },
   });
+  if (res.status === 401) {
+    throw new Error('401 — this API requires a key. Add it in Settings.');
+  }
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
     throw new Error(`${res.status} ${res.statusText}${detail ? ` — ${detail}` : ''}`);

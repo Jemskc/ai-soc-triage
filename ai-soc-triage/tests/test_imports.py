@@ -102,3 +102,36 @@ def test_toolbox_accepts_what_the_orchestrator_passes():
     params = set(inspect.signature(ToolBox.__init__).parameters)
     for required in ("df", "assets", "case_memory"):
         assert required in params
+
+
+# ── access control ────────────────────────────────────────────────────────────
+# The API approves containment actions and ingests telemetry. Unauthenticated on
+# 0.0.0.0, anyone who can route to the port can approve a response action or
+# read every case file in the estate.
+
+def test_api_key_is_read_from_the_environment_not_generated():
+    """A key that generates itself gets committed and never rotated."""
+    src = (Path(__file__).resolve().parents[1] / "src" / "api_server.py").read_text()
+    assert 'os.environ.get("SOC_API_KEY"' in src
+    # No fallback that invents a key.
+    assert "secrets.token" not in src
+    assert "uuid4()" not in src.split("API_KEY =")[1][:200]
+
+
+def test_health_stays_open_so_probes_work_without_a_key():
+    src = (Path(__file__).resolve().parents[1] / "src" / "api_server.py").read_text()
+    assert '"/health"' in src.split("_OPEN_PATHS")[1][:200]
+
+
+def test_wildcard_cors_is_not_used_when_a_key_is_set():
+    """A wildcard origin plus a header key lets any page the analyst visits
+    read the whole SOC through their browser."""
+    src = (Path(__file__).resolve().parents[1] / "src" / "api_server.py").read_text()
+    # Take the whole CORS configuration block, not the gap between the first
+    # two mentions of the variable.
+    start = src.index('_origins_env = os.environ.get')
+    block = src[start:src.index("app.add_middleware(", start)]
+    assert "elif API_KEY:" in block, block
+    assert "localhost:8000" in block, block
+    # The wildcard must only survive when no key is configured.
+    assert block.index('["*"]') > block.index("elif API_KEY:")
