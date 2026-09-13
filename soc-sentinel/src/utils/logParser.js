@@ -162,6 +162,68 @@ function parseJSONL(text) {
   return rows;
 }
 
+
+/**
+ * Convert a parsed row into the shape the analysis pipeline expects.
+ *
+ * The importer normalises into a DISPLAY shape — host, sourceIP, message —
+ * because that is what the tables render. The server's rules match on
+ * computer, source_ip and raw_message. Posting the display shape therefore
+ * ingested 20,200 events that could not trigger a single rule: the funnel
+ * reported zero alerts and zero incidents on a corpus containing 200 known
+ * attacks, and it looked like the detector had failed rather than like the
+ * fields had never arrived.
+ *
+ * The original record is preserved in `_raw`, and for most log formats it
+ * already uses the server's own field names, so it is trusted first and the
+ * display values only fill gaps.
+ */
+export function toPipelineEvent(row) {
+  const raw = row._raw || {};
+  const pick = (...names) => {
+    for (const n of names) {
+      const v = raw[n];
+      if (v !== undefined && v !== null && String(v) !== '') return String(v);
+    }
+    return '';
+  };
+
+  const computer = pick('computer', 'Computer', 'host', 'hostname', 'dest_computer')
+    || (row.host && row.host !== 'Unknown' ? row.host : '');
+  const sourceIp = pick('source_ip', 'src_ip', 'SourceIp', 'src_computer', 'sourceIP')
+    || (row.sourceIP && row.sourceIP !== 'Unknown' ? row.sourceIP : '');
+  const user = pick('user', 'User', 'username', 'account')
+    || (row.user && row.user !== 'Unknown' ? row.user : '');
+  const eventId = pick('event_id', 'EventID', 'eventId', 'event_code');
+
+  // raw_message is the field most rules match against, so it must carry the
+  // descriptive parts of the record rather than be left for the server to
+  // rebuild from process columns that authentication logs do not have.
+  const descriptive = ['auth_type', 'authentication_type', 'logon_type',
+                       'orientation', 'outcome', 'status', 'action',
+                       'message', 'description']
+    .map(k => raw[k]).filter(v => v !== undefined && v !== null && String(v) !== '');
+  const rawMessage = descriptive.length
+    ? `${descriptive.join(' ')}${sourceIp && computer ? ` ${sourceIp}->${computer}` : ''}`
+    : String(row.message || '').slice(0, 400);
+
+  return {
+    timestamp: row.timestamp || pick('timestamp', 'time', '@timestamp'),
+    event_id: eventId,
+    computer,
+    user,
+    target_user: pick('target_user', 'dst_user', 'TargetUserName'),
+    source_ip: sourceIp,
+    process_name: pick('process_name', 'Image', 'ProcessName', 'process'),
+    parent_process: pick('parent_process', 'ParentImage'),
+    command_line: pick('command_line', 'CommandLine'),
+    logon_type: pick('logon_type', 'LogonType'),
+    channel: pick('channel', 'Channel') || 'Security',
+    source_file: pick('source_file', 'EVTX_FileName'),
+    raw_message: rawMessage,
+  };
+}
+
 export async function parseLogFile(file, onProgress) {
   _idCounter = 1;
   return new Promise((resolve, reject) => {

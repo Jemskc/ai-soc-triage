@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { parseLogFile, loadMockData } from './utils/logParser';
+import { parseLogFile, loadMockData, toPipelineEvent } from './utils/logParser';
 import { MOCK_LOGS } from './data/mockData';
 
 import Header from './components/Header';
@@ -130,8 +130,9 @@ function Dashboard() {
       // sees an imported file, which is what made importing appear to succeed
       // and change nothing.
       try {
+        // Mapped to the server's schema, not the display shape the tables use.
         const accepted = await api.ingestBatched(
-          parsed, file.name,
+          parsed.map(toPipelineEvent), file.name,
           (done, total) => setLoadProgress({ done, total }),
         );
         showToast(

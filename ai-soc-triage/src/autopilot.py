@@ -163,6 +163,11 @@ class Autopilot:
         self._verdicts: dict[str, Any] = {}
         self._last_df: pd.DataFrame | None = None
         self._sources: dict[str, dict[str, Any]] = {}
+        # Bumped by reset(). Work started under an older epoch is
+        # discarded rather than written back, so a case that was
+        # mid-investigation when the corpus was cleared cannot
+        # resurrect an incident that no longer exists.
+        self._epoch = 0
         self._events_written = -1
         self._events_written_at = 0.0
         self._lock = threading.Lock()
@@ -286,6 +291,7 @@ class Autopilot:
             self.state.queued_batches = 0
             self.state.cycles = 0
             self.state.stage = "idle"
+            self._epoch += 1
 
         # Everything derived from the ingested corpus, not just the obvious
         # three. case_memory is the important one: it holds analyst-confirmed
@@ -559,6 +565,7 @@ class Autopilot:
             return
 
         self.state.stage = "agents"
+        epoch = self._epoch
 
         for done in range(CASES_PER_CYCLE):
             if self._stop.is_set():
@@ -666,6 +673,15 @@ class Autopilot:
                     incident=incident,
                 ).to_dict()
 
+            if epoch != self._epoch:
+                # The corpus was cleared while this case was being investigated.
+                # Recording it now would put a verdict on the board for an
+                # incident nobody can look up.
+                self.bus.publish("case.discarded",
+                                 incident_id=incident.get("incident_id"),
+                                 why="corpus reset during investigation")
+                break
+
             self.state.cases_analysed += 1
             payload = case.to_dict()
             self._verdicts[payload["incident_id"]] = {
@@ -750,7 +766,15 @@ class Autopilot:
                               OUTPUT_DIR, _atomic_write, build_event_rows,
                               build_metrics)
 
-        if self._last_df is None or not self._all_incidents:
+        # Raw logs are published whether or not anything was detected.
+        #
+        # This used to return early when the funnel found no incidents, so
+        # ingesting 20,200 events that raised no alerts left Live Logs
+        # completely empty — the data was on the server, the view had simply
+        # never been written. "Nothing was detected" and "nothing was
+        # ingested" then look identical to an analyst, and the second is a far
+        # more alarming conclusion than the first.
+        if self._last_df is None:
             return
         try:
             OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

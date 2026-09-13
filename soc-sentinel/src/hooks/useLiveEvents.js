@@ -42,6 +42,15 @@ export function useLiveEvents({ enabled = true } = {}) {
           if (cancelled || !msg.data) return;
           try {
             const event = JSON.parse(msg.data);
+            // A reset wipes the buffer. Without this the browser keeps
+            // replaying the last 200 events from before the corpus was
+            // cleared, so the AI Investigation tab carries on showing traces
+            // for incidents that no longer exist — the dashboard contradicting
+            // itself about whether anything is loaded.
+            if (event.kind === 'reset') {
+              setEvents([]);
+              return;
+            }
             setEvents(prev => [...prev, event].slice(-MAX_EVENTS));
           } catch {
             // keepalive comments and malformed frames are ignored
