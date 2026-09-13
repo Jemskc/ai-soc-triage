@@ -45,6 +45,15 @@ WATCH_INTERVAL_SECONDS = 5
 # cannot starve whatever arrives next.
 CASES_PER_CYCLE = 10
 
+# Analysed every cycle even while logs are still arriving. Without a floor the
+# agent yields to the ingest queue forever and nothing is ever investigated.
+MIN_CASES_PER_CYCLE = 3
+
+# Floor between full rewrites of the event file. The dashboard polls it; a
+# couple of seconds of staleness is invisible, and rewriting 72MB per batch is
+# not.
+EVENTS_REWRITE_SECONDS = 5.0
+
 # Rows kept for the log view. The dashboard holds these in browser memory,
 # so this is a UI limit, not an analysis one — the funnel has already seen
 # every event by the time trimming happens.
@@ -153,6 +162,8 @@ class Autopilot:
         self._campaign_built_at = 0
         self._verdicts: dict[str, Any] = {}
         self._last_df: pd.DataFrame | None = None
+        self._events_written = -1
+        self._events_written_at = 0.0
         self._lock = threading.Lock()
 
     # -- lifecycle ---------------------------------------------------------
@@ -420,9 +431,17 @@ class Autopilot:
 
         self.state.stage = "agents"
 
-        for _ in range(CASES_PER_CYCLE):
-            if self._stop.is_set() or not self.inbox.empty():
-                # New logs take priority: fast feedback beats deep analysis.
+        for done in range(CASES_PER_CYCLE):
+            if self._stop.is_set():
+                break
+            # New logs take priority over DEEP analysis, but never over all of
+            # it. Yielding the moment anything was queued starved the agent
+            # completely on a bulk load: ingesting a million events left 175
+            # batches queued, 225 incidents pending and zero analysed, so the
+            # Alerts tab stayed empty for as long as the import ran. A minimum
+            # slice per cycle means findings appear while logs are still
+            # arriving, which is the whole point of a live console.
+            if done >= MIN_CASES_PER_CYCLE and not self.inbox.empty():
                 break
             with self._lock:
                 if not self._pending:
@@ -605,9 +624,22 @@ class Autopilot:
         if self._last_df is None or not self._all_incidents:
             return
         try:
-            rows = build_event_rows(self._last_df, self._all_incidents)
             OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-            EVENTS_PATH.write_text(json.dumps(rows, default=str), encoding="utf-8")
+
+            # Rebuilding the whole event file on every publish is quadratic:
+            # by batch 200 of a million-event import it was re-serialising 72MB
+            # per batch, which is most of why the dashboard crawled during a
+            # bulk load. The rows only change when new events arrive, so it is
+            # rewritten on a size change and at most every few seconds.
+            now = time.time()
+            n_events = len(self._last_df)
+            stale = (n_events != self._events_written
+                     or now - self._events_written_at > EVENTS_REWRITE_SECONDS)
+            if stale:
+                rows = build_event_rows(self._last_df, self._all_incidents)
+                EVENTS_PATH.write_text(json.dumps(rows, default=str), encoding="utf-8")
+                self._events_written = n_events
+                self._events_written_at = now
 
             bundle = {
                 "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),

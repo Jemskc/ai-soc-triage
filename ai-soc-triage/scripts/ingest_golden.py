@@ -1,3 +1,4 @@
+#!/work/aiw642/conda_envs/falcon3-7b/bin/python
 """Load golden.jsonl into a running dashboard.
 
 WHY THIS IS NOT A BROWSER UPLOAD

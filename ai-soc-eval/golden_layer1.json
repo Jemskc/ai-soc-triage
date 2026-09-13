@@ -1,0 +1,278 @@
+{
+ "dataset": {
+  "path": "golden.jsonl",
+  "sha256": "390810c01bf9ee123ec9570afe2afcc2302b91c5637d3ca1bd3fceea39a8be9c",
+  "ground_truth": {
+   "labelled_lines": 749,
+   "distinct_tuples": 715,
+   "malformed_lines": 0
+  }
+ },
+ "funnel": {
+  "stages": [
+   {
+    "name": "stream",
+    "described": "Stream processing and baseline accumulation",
+    "events_in": 1000702,
+    "events_out": 1000702,
+    "elapsed_seconds": 8.23,
+    "note": "21 chunk(s); baselines for 22756 accounts and 12448 hosts",
+    "reduction": 1.0
+   },
+   {
+    "name": "rules",
+    "described": "Deterministic detection rules",
+    "events_in": 1000702,
+    "events_out": 47686,
+    "elapsed_seconds": 2764.03,
+    "note": "15 rules; high precision, low recall",
+    "reduction": 21.0
+   },
+   {
+    "name": "analytics",
+    "described": "Statistical rarity and UEBA baseline deviation",
+    "events_in": 1000702,
+    "events_out": 299057,
+    "elapsed_seconds": 111.75,
+    "note": "unsupervised: no labelled benign data exists here, so these are rarity and per-entity deviation, not a trained model",
+    "reduction": 3.3
+   },
+   {
+    "name": "promotion",
+    "described": "Promote statistically extreme unruled events",
+    "events_in": 299057,
+    "events_out": 44397,
+    "elapsed_seconds": 4.48,
+    "note": "44397 event(s) reached the AI path without a rule hit",
+    "reduction": 6.7
+   },
+   {
+    "name": "correlation",
+    "described": "Correlate alerts into incidents",
+    "events_in": 92083,
+    "events_out": 73,
+    "elapsed_seconds": 5.44,
+    "note": "",
+    "reduction": 1261.4
+   },
+   {
+    "name": "ranking",
+    "described": "Rank by fused signal and apply the AI budget",
+    "events_in": 73,
+    "events_out": 25,
+    "elapsed_seconds": 0.0,
+    "note": "budget 25; 48 incident(s) recorded below the line, not discarded",
+    "reduction": 2.9
+   }
+  ],
+  "stream_summary": {
+   "events": 1000702,
+   "chunks": 21,
+   "distinct_processes": 0,
+   "distinct_users": 22756,
+   "distinct_hosts": 12448,
+   "distinct_parent_child": 0
+  },
+  "incident_count": 73,
+  "selected_for_ai": 25,
+  "deferred": 48,
+  "elapsed_seconds": 2894.4,
+  "calibration": {
+   "process": {
+    "distinct_keys": 1,
+    "singleton_share": 0.0,
+    "discriminative_power": 1.0
+   },
+   "lineage": {
+    "distinct_keys": 1,
+    "singleton_share": 0.0,
+    "discriminative_power": 1.0
+   },
+   "event_id": {
+    "distinct_keys": 1,
+    "singleton_share": 0.0,
+    "discriminative_power": 1.0
+   },
+   "user_host_pair": {
+    "distinct_keys": 209669,
+    "singleton_share": 0.358,
+    "discriminative_power": 0.642
+   }
+  },
+  "caveats": [
+   "No separate baseline was supplied, so rarity was computed against the same data being scored. 'Rare' therefore means rare within this capture, not rare for this environment \u2014 normal operating-system activity can rank highly. Supply a baseline learned from known-normal traffic to fix this."
+  ],
+  "deferred_summary": [
+   {
+    "incident_id": "INC-5EF54D6194",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-3EBFC26F98",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-33D5C71D61",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-EC538AF111",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-53993CEA58",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-C3D8F50F05",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-306F64BA41",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-5DD9C48328",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-68BF7E46B8",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-BA994B23A3",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-D23408D303",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-996BB402D7",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-67CC45C1AB",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-4B537E8C72",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-8A28051920",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-4463B9D42B",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-1432F88633",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-D8497AFC03",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-60B694C7C1",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   },
+   {
+    "incident_id": "INC-EF76CD120C",
+    "funnel_score": 0.55,
+    "top_reason": "Rule hit at medium severity."
+   }
+  ]
+ },
+ "layer1_detection": {
+  "sample": {
+   "tp": 702,
+   "fp": 91375,
+   "tn": 908625,
+   "fn": 0,
+   "precision": 0.0076,
+   "recall": 1.0,
+   "f1": 0.0151,
+   "false_positive_rate": 0.091375
+  },
+  "base_rate_corrected": {
+   "available": true,
+   "scale_factor": 1051.4,
+   "projected_false_positives": 96074394,
+   "precision": 7e-06,
+   "f1": 1.5e-05,
+   "note": "Precision corrected to the corpus base rate. The sample figure is optimistic by roughly the sampling factor and should never be quoted on its own."
+  },
+  "operational": {
+   "alerts_per_day": 1656467.2,
+   "false_positives_per_day": 1656455.1,
+   "true_positives_per_day": 12.1,
+   "analyst_hours_per_day_at_8min": 220862.3,
+   "note": "8 minutes of manual triage per alert is an assumption, not a measurement."
+  }
+ },
+ "timing": {
+  "funnel_seconds": 2894.73
+ },
+ "layer2_ai": {
+  "skipped": true
+ },
+ "gates": {
+  "checks": {
+   "recall": {
+    "bar": 0.6,
+    "measured": 1.0,
+    "passed": true
+   },
+   "base_rate_precision": {
+    "bar": 0.01,
+    "measured": 7e-06,
+    "passed": false
+   },
+   "false_positives_per_day": {
+    "bar": 100.0,
+    "measured": 1656455.1,
+    "passed": false
+   },
+   "grounding_rate": {
+    "bar": 0.95,
+    "measured": null,
+    "passed": null,
+    "why": "AI layer not run"
+   },
+   "parse_failure_rate": {
+    "bar": 0.02,
+    "measured": null,
+    "passed": null,
+    "why": "AI layer not run"
+   }
+  },
+  "undecided": [
+   "grounding_rate",
+   "parse_failure_rate"
+  ],
+  "passed": false,
+  "note": "Bars are pre-registered in GATES and were fixed before any run."
+ }
+}

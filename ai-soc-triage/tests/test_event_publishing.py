@@ -212,3 +212,37 @@ def test_retention_cap_exists_and_announces_itself():
     src = inspect.getsource(autopilot.Autopilot._run_cycle)
     # Dropping evidence silently is worse than dropping it.
     assert "events.trimmed" in src
+
+
+# ── the agent must not be starved by a bulk import ───────────────────────────
+# Ingesting a million events left 175 batches queued, 225 incidents pending and
+# ZERO analysed: _investigate_pending yielded the moment anything was in the
+# inbox, so during a large import the Alerts tab stayed empty for the entire
+# run. New logs may outrank deep analysis; they must not cancel it.
+
+def test_analysis_gets_a_guaranteed_slice_while_logs_are_arriving():
+    import inspect
+
+    import autopilot
+
+    src = inspect.getsource(autopilot.Autopilot._investigate_pending)
+    assert "MIN_CASES_PER_CYCLE" in src, (
+        "without a floor the ingest queue starves the agent indefinitely")
+    # The unconditional yield must be gone.
+    assert "if self._stop.is_set() or not self.inbox.empty():" not in src
+    assert autopilot.MIN_CASES_PER_CYCLE >= 1
+
+
+def test_event_file_rewrite_is_throttled():
+    """Re-serialising the whole corpus per batch is quadratic.
+
+    At batch 200 of a million-event import that was 72MB rewritten each time.
+    """
+    import inspect
+
+    import autopilot
+
+    src = inspect.getsource(autopilot.Autopilot._publish_bundle)
+    assert "EVENTS_REWRITE_SECONDS" in src
+    assert "_events_written" in src
+    assert autopilot.EVENTS_REWRITE_SECONDS > 0
