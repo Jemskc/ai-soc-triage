@@ -105,7 +105,29 @@ def _atoms(value: Any) -> list[str]:
     return [p for p in parts if p]
 
 
+# Phrases that report a judgement or an absence rather than quote a field.
+# "No distinct peers accessed" is a real finding — the agent looked and found
+# nothing — but by construction it cannot appear in an observation, so scoring
+# it as fabricated punishes exactly the behaviour the enforcement asks for.
+_QUALITATIVE = (
+    "no ", "none", "not ", "minimal", "nothing", "absent", "normal", "typical",
+    "consistent with", "within ", "unremarkable", "did not", "never",
+    "baseline", "expected", "ordinary", "benign",
+)
+
+
+def _is_qualitative(text: str) -> bool:
+    t = norm(text)
+    return any(t.startswith(w) or f" {w}" in t for w in _QUALITATIVE)
+
+
 def classify(value: Any, brief: str, obs: str) -> str:
+    # A structured object rendered as a string ("[{'time': ..., 'event_id': ...}]")
+    # is a summary of what was found, not a quotable identifier.
+    text = norm(value)
+    if text.startswith(("[", "{")) or _is_qualitative(text):
+        return "summary"
+
     atoms = _atoms(value)
     meaningful = [a for a in atoms if a not in GENERIC and len(a) >= 3]
     if not meaningful:
@@ -226,6 +248,8 @@ def main() -> int:
     print(f"  citations from a TOOL     {total['tool']:4d}   (discovered by investigating)")
     print(f"  citations ABSENT          {total['absent']:4d}   (in neither)")
     print(f"  citations too generic     {total['generic']:4d}   (not attributable)")
+    print(f"  qualitative findings      {total['summary']:4d}   "
+          f"(a judgement or an absence — real, but not quotable)")
     print()
     print(f"  INVESTIGATION YIELD       "
           f"{'n/a' if overall is None else f'{overall:.1%}'}")

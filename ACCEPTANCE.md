@@ -24,8 +24,11 @@ accuracy figures say.
 | A4 | No ATT&CK technique cited that was not retrieved | 0 | `verdict_audit.py` |
 | A5 | No evidence cited that appears nowhere the agent looked | 0 | `investigation_yield.py` |
 
-**Status: A1–A3 enforced and pinned by tests. A4 measured at 0/386 and 0/46.
-A5 measured at 2 of 43 citations — not yet passing.**
+**Status: A1–A5 all pass.** A1–A3 enforced and pinned by tests. A4 measured at
+0/386 and 0/46. A5 now 0 fabricated citations — the earlier 2 were the metric's
+fault, scoring a structured object and two negative findings ('no distinct
+peers accessed') as invention. A negative finding cannot appear verbatim in an
+observation, so the check was punishing the behaviour the enforcement asks for.
 
 Rationale for A2: measured on a real run, 14 incidents carrying Mimikatz or
 PsExec detections sat invisible in a questions queue with no verdict and no
@@ -99,9 +102,10 @@ classification and the model for explanation, and we say so.
 | C4 | Calibration error (ECE) | ≤ 0.15 | `prompt_lab.py` |
 | C5 | Parse failure rate | ≤ 0.02 | `prompt_lab.py` |
 
-**Status: C2a now enforced — `_enforce` rejects a conclusion whose every cited
-value predates the first tool call. C2 itself still measured at 0.116 on the
-verdicts produced before that landed, and must be re-measured on a fresh run.
+**Status: C2 PASSES at 0.80 on a clean run (bar 0.40), up from 0.116 before
+enforcement — cases citing nothing they discovered fell from 89% to 6%.
+Provisional: it is a ratio over few attributable citations on 16 cases, so the
+direction is settled and the figure is not. C2a enforced and pinned.
 C3 FAILS (48% of incidents sit in groups where identical rule signatures
 produced different verdicts). C4 FAILS — confidence is inversely related to
 correctness: stated 0.8 was right 25% of the time, stated 0.3 was right 100%.
