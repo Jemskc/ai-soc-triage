@@ -94,11 +94,14 @@ classification and the model for explanation, and we say so.
 |---|------|-----|-----------|
 | C1 | AI beats logistic regression on 8 numeric features, by MCC, on TEST | strictly greater | `prompt_lab.py --final` |
 | C2 | Investigation yield — share of cited evidence discovered by a tool rather than known from the brief | ≥ 0.40 | `investigation_yield.py` |
+| C2a | A conclusion citing only the opening brief is rejected in code | enforced | `pytest tests/test_grounding_enforcement.py` |
 | C3 | Verdict consistency — same evidence, same verdict | ≥ 0.90 | `verdict_audit.py` |
 | C4 | Calibration error (ECE) | ≤ 0.15 | `prompt_lab.py` |
 | C5 | Parse failure rate | ≤ 0.02 | `prompt_lab.py` |
 
-**Status: C2 FAILS (0.116 — 89% of verdicts cite nothing they discovered).
+**Status: C2a now enforced — `_enforce` rejects a conclusion whose every cited
+value predates the first tool call. C2 itself still measured at 0.116 on the
+verdicts produced before that landed, and must be re-measured on a fresh run.
 C3 FAILS (48% of incidents sit in groups where identical rule signatures
 produced different verdicts). C4 FAILS — confidence is inversely related to
 correctness: stated 0.8 was right 25% of the time, stated 0.3 was right 100%.
@@ -113,8 +116,8 @@ Both un-overridable rules are deterministic for that reason.
 
 | # | Gate | Status |
 |---|------|--------|
-| D1 | Authentication on every endpoint | **absent — anyone reaching :8000 can approve actions and ingest data** |
-| D2 | CORS restricted to the dashboard origin | **absent — `allow_origins=["*"]`** |
+| D1 | Authentication on every endpoint | **passes** — `SOC_API_KEY`; verified 401 without, 200 with, `/health` still open |
+| D2 | CORS restricted to the dashboard origin | **passes** — wildcard refused once a key is set |
 | D3 | TLS; not bound to 0.0.0.0 in the open | **absent** |
 | D4 | Durable storage, not JSON files | **absent — single process, file-backed** |
 | D5 | At least one live telemetry connector | **absent — 0 of 9 connected** |
