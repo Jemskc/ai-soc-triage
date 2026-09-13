@@ -105,7 +105,28 @@ verdicts produced before that landed, and must be re-measured on a fresh run.
 C3 FAILS (48% of incidents sit in groups where identical rule signatures
 produced different verdicts). C4 FAILS — confidence is inversely related to
 correctness: stated 0.8 was right 25% of the time, stated 0.3 was right 100%.
-C5 passes (0.000 over 253 calls). C1 pending.**
+C5 passes (0.000 over 253 calls).
+
+**C1 FAILS on the locked TEST split.** Logistic regression on eight numeric
+features scores MCC 0.424 against the best of fourteen prompt x retrieval
+configurations at 0.385, and also wins on recall (0.344 vs 0.273); precision is
+a tie within noise (0.846 vs 0.857). The LLM additionally abstained on 25 of 92
+incidents, so its figures are computed on the 67 it committed to while the
+baseline answered all of them.
+
+The DEV gap looked far larger (0.582 vs 0.412) but must not be quoted: the
+baseline is TRAINED on DEV, so that number is inflated by construction. On
+held-out data it falls to 0.424 while the LLM moves only 0.412 -> 0.385. The
+honest gap is about 10%, not 41%, and the difference between those two readings
+is the entire reason the split is locked.
+
+This reproduces the published result for this task (Expert Systems with
+Applications, 2026), which found lightweight models matching or beating LLMs on
+SOC alert classification.
+
+What follows from it: the model is not the classifier. Statistics decide what
+is suspicious; the agent investigates and explains what survives. That is also
+what every vendor in this market actually does.**
 
 C4 is why no safety control in this system may be gated on model confidence.
 Both un-overridable rules are deterministic for that reason.

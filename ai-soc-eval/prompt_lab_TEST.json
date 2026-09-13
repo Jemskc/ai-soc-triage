@@ -1,0 +1,778 @@
+{
+ "split": "test",
+ "dev_fraction": 0.7,
+ "incidents_evaluated": 92,
+ "incidents_total": 3887,
+ "results": [
+  {
+   "config": "p2_soc_role+r0_none",
+   "split": "test",
+   "metrics": {
+    "tp": 6,
+    "fp": 1,
+    "tn": 44,
+    "fn": 16,
+    "decided": 67,
+    "abstained": 25,
+    "abstained_malicious": 10,
+    "precision": 0.8571,
+    "recall": 0.2727,
+    "f1": 0.4138,
+    "specificity": 0.9778,
+    "npv": 0.7333,
+    "false_positive_rate": 0.0222,
+    "balanced_accuracy": 0.6253,
+    "mcc": 0.3846
+   },
+   "calibration": {
+    "available": true,
+    "brier": 0.1929,
+    "ece": 0.1,
+    "bins": [
+     {
+      "range": "80%-100%",
+      "n": 67,
+      "stated": 0.846,
+      "actual": 0.746
+     }
+    ]
+   },
+   "operational": {
+    "available": true,
+    "scale_factor": 42.25,
+    "escalations_per_day": 5.1,
+    "false_escalations_per_day": 0.7,
+    "true_escalations_per_day": 4.37,
+    "analyst_hours_per_day_at_8min": 0.7,
+    "note": "8 minutes per escalation is an assumption, not a measurement."
+   },
+   "grounding": {
+    "citations": 87,
+    "ungrounded": 87,
+    "rate": 0.0
+   },
+   "reliability": {
+    "calls": 92,
+    "parse_failures": 0,
+    "parse_failure_rate": 0.0
+   },
+   "latency_seconds": {
+    "p50": 1.4,
+    "p95": 1.4,
+    "mean": 1.4
+   },
+   "cases": [
+    {
+     "incident_id": "INC-5D15A90964",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The single successful authentication with no failed attempts and a single source and destination host does not indicate adversary behavior.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-7C53B35ABE",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The event shows a single successful authentication from an unusual host, but there are no failed attempts or other suspicious activities indicating malicious behavior.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-9019CD1CED",
+     "malicious": true,
+     "verdict": "ESCALATE",
+     "confidence": 0.85,
+     "reason": "NTLM authentication where Kerberos is expected on multiple distinct destinations for the same account suggests potential lateral movement or misuse of credentials.",
+     "sources": [
+      "KB-0014",
+      "KB-0023"
+     ]
+    },
+    {
+     "incident_id": "INC-4F5384A866",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The event is a single successful authentication without failed attempts and involves a behavioural rule about first-time user-host interaction, which can be common in enterprise environments.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-028661704B",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The activity involves a single account with no failed authentications and typical logon/logoff patterns across two source hosts, indicating normal user behavior.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-66B70D8323",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "Single successful NTLM authentication where Kerberos is expected from a known account to a single destination, without failed attempts or unusual logon types.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-E16E556850",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "Single instance of NTLM authentication where Kerberos is expected, with no failed attempts and low volume of activity.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-8291688791",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The activity is consistent with normal user behavior, involving a single source host, account, and destination with no failed authentications.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-0D5D9232CF",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "Single successful NTLM authentication where Kerberos is expected from a single host and account, likely due to legitimate use of legacy protocols or application-specific requirements.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-87CCA6A629",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The event shows a single successful authentication from one host to one destination using one account, which is typical user behavior.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-00D4E5F0CF",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The single-source, single-destination, single-account activity with one successful authentication does not indicate adversary behavior.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-306F64BA41",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "Single successful NTLM authentication where Kerberos is expected from a single host to a single destination with one account does not indicate adversary behavior.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-E372D394B7",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The event is a single successful authentication without failed attempts and involves a single source and destination host, which is typical for initial logins.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-54D1B47D2D",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The single successful Kerberos authentication from host C1881 to itself using account U66 with logon type 3 is typical of normal user behavior.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-B18F4CF762",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.85,
+     "reason": "The event is a single successful authentication without failed attempts and involves a single source and destination host, which is typical for initial login activities.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-1ADCF255AA",
+     "malicious": true,
+     "verdict": "ESCALATE",
+     "confidence": 0.85,
+     "reason": "The presence of NTLM Authentication Where Kerberos Is Expected (x112) and wide host footprint (x52) indicates potential lateral movement or credential misuse.",
+     "sources": [
+      "KB-NTLM-Kerberos-Expected",
+      "KB-Wide-Host-Footprint"
+     ]
+    },
+    {
+     "incident_id": "INC-93BB76B42E",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "Single successful NTLM authentication where Kerberos is expected, with no failed attempts and typical logon type (interactive logon).",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-E0778A7F59",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "Single instance of NTLM authentication where Kerberos is expected, with no failed attempts and involving a single account and host, likely due to legitimate use case or configuration issue.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-09954B5D2C",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "Single successful NTLM authentication where Kerberos is expected from a single host to a single destination with one account does not indicate adversary behavior.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-B15A71CDCD",
+     "malicious": true,
+     "verdict": "ESCALATE",
+     "confidence": 0.85,
+     "reason": "Multiple NTLM authentications where Kerberos is expected, coupled with unusual host activity for the user, suggest potential lateral movement or credential misuse.",
+     "sources": [
+      "KB-NTLM-Kerberos-Abnormality",
+      "KB-Unusual-Host-Activity"
+     ]
+    },
+    {
+     "incident_id": "INC-26A0AE8B52",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The event indicates a behavioural rule for 'first time user host', but there were no failed authentications and only one source and destination host, suggesting normal user behavior.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-612AD35AD6",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The use of NTLM where Kerberos is expected could be due to legacy systems or misconfigurations rather than malicious activity.",
+     "sources": [
+      "KB-0012",
+      "KB-0015"
+     ]
+    },
+    {
+     "incident_id": "INC-F51D0C7EC2",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "Single instance of NTLM authentication where Kerberos is expected, with no failed attempts and involving a single account and host, likely due to legitimate use case or configuration issue.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-906E9148A5",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The event shows a single account using NTLM where Kerberos is expected, but there are no failed authentications, and it involves a normal logon type (3), suggesting it could be due to legitimate reaso",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-D691DAFF5C",
+     "malicious": false,
+     "verdict": "ESCALATE",
+     "confidence": 0.85,
+     "reason": "The high number of distinct source hosts (59) and accounts (31) involved in NTLM authentications where Kerberos is expected, along with unusual host-user associations, suggest potential lateral moveme",
+     "sources": [
+      "KB-NTLM-Kerberos-Substitution",
+      "KB-Unusual-Host-User-Association"
+     ]
+    },
+    {
+     "incident_id": "INC-6BABCB4DB1",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The activity involves a single source host, account, and destination with no failed authentications, indicating normal behavior.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-1AE63E0B39",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "Single successful NTLM authentication where Kerberos is expected from a single source to a single destination with one account does not indicate adversary behavior.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-4E8B0AD0A8",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The single successful authentication with no failed attempts and a logoff orientation from a single source to a single destination does not indicate adversary behavior.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-C492E521C4",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "Single instance of NTLM authentication where Kerberos is expected, with no failed attempts and low volume of activity.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-009FF4C624",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The single successful authentication from an unusual host does not indicate malicious activity given there were no failed attempts and the logoff orientation suggests normal use.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-B224587BEE",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The single-source, single-destination, single-account activity with one successful Kerberos logon does not indicate adversary behavior.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-0EEFFFF70E",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The single successful Kerberos authentication with no failed attempts and a logon type of 3 (network) is typical for legitimate user behavior.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-B9CE8C9FB7",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The event shows a single account logging into multiple hosts, which could be due to legitimate multi-device access by an employee.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-D17365ADC1",
+     "malicious": true,
+     "verdict": "ESCALATE",
+     "confidence": 0.85,
+     "reason": "High number of distinct source hosts (95) and accounts (56) involved in NTLM authentication where Kerberos is expected, indicating potential lateral movement or credential misuse.",
+     "sources": [
+      "KB-NTLM-Kerberos-Abuse",
+      "KB-Lateral-Movement"
+     ]
+    },
+    {
+     "incident_id": "INC-58083A8F88",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The event is a single successful authentication without failed attempts and involves a single source and destination host, which is typical for a new user logging in from their first device.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-EF0DFA7B29",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The use of NTLM where Kerberos is expected could be due to legacy systems or misconfigurations rather than adversary behavior.",
+     "sources": [
+      "KB-0012",
+      "KB-0015"
+     ]
+    },
+    {
+     "incident_id": "INC-37F16528E9",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The event is a single successful authentication without failed attempts and involves a single source and destination host, which is typical for initial user activity on a new host.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-E9DAE1FD3F",
+     "malicious": true,
+     "verdict": "ESCALATE",
+     "confidence": 0.85,
+     "reason": "Multiple NTLM authentications where Kerberos is expected from a single source host to two distinct destinations for the same account suggests potential credential misuse or lateral movement.",
+     "sources": [
+      "KB-NTLM-Kerberos-Interactions",
+      "KB-Lateral-Movement-Methods"
+     ]
+    },
+    {
+     "incident_id": "INC-A6686C839D",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The single-source, single-destination, single-account activity with one successful authentication does not indicate adversary behavior.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-D48887BABA",
+     "malicious": true,
+     "verdict": "ESCALATE",
+     "confidence": 0.85,
+     "reason": "NTLM authentication where Kerberos is expected for the same account over two events suggests potential credential misuse or policy violation.",
+     "sources": [
+      "KB-007",
+      "KB-012"
+     ]
+    },
+    {
+     "incident_id": "INC-C5A675A5A8",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "Single instance of NTLM authentication where Kerberos is expected, with no failed attempts and involving a single source and destination host, likely due to legitimate use case or configuration issue.",
+     "sources": [
+      "KB-NTLM-Kerberos"
+     ]
+    },
+    {
+     "incident_id": "INC-AF1A0390BC",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The events show successful NTLM authentications where Kerberos is expected, but no failed attempts or unusual account usage patterns indicating potential compromise.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-F650BAEE20",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "Single instance of NTLM authentication where Kerberos is expected, with no failed attempts and low volume of activity.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-F89BD9CE22",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.85,
+     "reason": "Single instance of NTLM authentication where Kerberos is expected, with no failed attempts and low volume of activity indicating normal user behavior.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-B75ECDA83A",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The use of NTLM where Kerberos is expected could be due to legacy systems or misconfigurations rather than adversary behavior.",
+     "sources": [
+      "KB-0012",
+      "KB-0015"
+     ]
+    },
+    {
+     "incident_id": "INC-E4F7E00755",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The single successful authentication from a known account to a known host without failed attempts suggests normal activity.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-0D3F175A8A",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "Single successful NTLM authentication where Kerberos is expected, with no failed attempts and typical logon type (interactive logon).",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-C892E89EC1",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "Single successful NTLM authentication where Kerberos is expected, with no failed attempts and minimal scope involving one source host, one destination, and one account, indicating likely legitimate us",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-79C9AAB99D",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "Single successful NTLM authentication where Kerberos is expected from a single host and account, likely due to legitimate use of legacy protocols or application-specific requirements.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-D51BE822B7",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The single successful Kerberos authentication with no failed attempts and a logon type of 3 (network logon) is typical for legitimate user activity.",
+     "sources": [
+      "KB001",
+      "KB002"
+     ]
+    },
+    {
+     "incident_id": "INC-4DC995B3F7",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The event is a first-time authentication from a new host but there are no failed attempts and only one distinct source and destination, which is typical for an employee using a new device.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-A849BAC797",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The event is a single successful authentication without failed attempts and involves a logoff action which is not indicative of adversarial behavior.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-2A8D66A409",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The single-source, single-destination, single-account activity with one successful authentication does not indicate adversary behavior.",
+     "sources": [
+      "KB001",
+      "KB002"
+     ]
+    },
+    {
+     "incident_id": "INC-1AB942E5F1",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The event is a single successful authentication without failed attempts and does not indicate unusual behavior beyond being the first time the account was used from this host.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-8DB95965C5",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The events show successful NTLM authentications where Kerberos is expected, but no failed attempts or unusual account behavior indicating potential compromise.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-58F7AC6605",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The event indicates a first-time login from a new host which is common for legitimate users changing devices or locations.",
+     "sources": [
+      "KB001",
+      "KB002"
+     ]
+    },
+    {
+     "incident_id": "INC-E88F946AE7",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.85,
+     "reason": "The event is a behavioural alert for a first-time user-host association but there were no failed authentications and only one successful authentication.",
+     "sources": [
+      "KB-007",
+      "KB-012"
+     ]
+    },
+    {
+     "incident_id": "INC-6427DE8363",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "Single successful NTLM authentication where Kerberos is expected from a known account to a single destination, likely due to legitimate use of legacy protocols or application requirements.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-9A89734CF7",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "Single instance of NTLM authentication where Kerberos is expected, with no failed attempts and involving a single account and host, likely due to legitimate use cases such as legacy applications or sp",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-F330FE210C",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The single successful authentication from a known account to a known destination does not indicate adversary behavior.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-76D03D6467",
+     "malicious": true,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The event shows a single user (U748) authenticating successfully via NTLM where Kerberos is expected, but there are no failed attempts, multiple sources, or unusual logon types indicating malicious be",
+     "sources": [
+      "KB-NTLM-Kerberos-Interactions"
+     ]
+    },
+    {
+     "incident_id": "INC-577B79B54C",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "Single source host, account, and destination with no failed authentications suggests normal user behavior rather than adversary activity.",
+     "sources": [
+      "KB-NTLM-KERBEROS-OVERLAP"
+     ]
+    },
+    {
+     "incident_id": "INC-2EDA7F98EC",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "Single successful NTLM authentication where Kerberos is expected from a known host and account, likely due to a legitimate scenario such as legacy application support or specific client configuration.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-68124C164E",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "The single source host, account, and destination indicate normal user behavior without failed authentications.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-B4B5B1D545",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.8,
+     "reason": "The single successful Kerberos authentication with no failed attempts and a standard logon type (3) indicates normal user behavior.",
+     "sources": [
+      "KB-001",
+      "KB-002"
+     ]
+    },
+    {
+     "incident_id": "INC-88E64F5CFB",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "Single successful NTLM authentication where Kerberos is expected, with no failed attempts and typical logon type (3) indicating interactive logon, which can be common in enterprise environments.",
+     "sources": []
+    },
+    {
+     "incident_id": "INC-328BE598B5",
+     "malicious": false,
+     "verdict": "SUPPRESS",
+     "confidence": 0.9,
+     "reason": "Single source host, account, and destination with no failed authentications suggests normal user behavior rather than adversary activity.",
+     "sources": [
+      "KB-NTLM-KERBEROS-OVERLAP"
+     ]
+    }
+   ]
+  }
+ ],
+ "best_by_mcc": "p2_soc_role+r0_none",
+ "logistic_baseline": {
+  "dev": {
+   "tp": 30,
+   "fp": 4,
+   "tn": 136,
+   "fn": 29,
+   "decided": 199,
+   "abstained": 0,
+   "abstained_malicious": 0,
+   "precision": 0.8824,
+   "recall": 0.5085,
+   "f1": 0.6452,
+   "specificity": 0.9714,
+   "npv": 0.8242,
+   "false_positive_rate": 0.0286,
+   "balanced_accuracy": 0.74,
+   "mcc": 0.5823
+  },
+  "test": {
+   "tp": 11,
+   "fp": 2,
+   "tn": 58,
+   "fn": 21,
+   "decided": 92,
+   "abstained": 0,
+   "abstained_malicious": 0,
+   "precision": 0.8462,
+   "recall": 0.3438,
+   "f1": 0.4889,
+   "specificity": 0.9667,
+   "npv": 0.7342,
+   "false_positive_rate": 0.0333,
+   "balanced_accuracy": 0.6552,
+   "mcc": 0.4244
+  },
+  "features": [
+   "distinct_destinations",
+   "distinct_accounts",
+   "distinct_source_hosts",
+   "failed_authentications",
+   "machine_accounts",
+   "destinations_per_source",
+   "alert_count",
+   "rules_fired"
+  ],
+  "note": "Trained on DEV, scored on TEST. If the LLM does not clearly beat this, the honest architecture is statistics for classification and the model for explanation."
+ },
+ "caveat": "DEV numbers are a development aid, not a result. Only a --final run against the TEST split, with a configuration chosen before seeing it, measures generalisation."
+}
