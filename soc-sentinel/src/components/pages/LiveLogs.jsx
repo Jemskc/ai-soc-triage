@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Activity, ArrowRight, Search, Database, Filter, Layers } from 'lucide-react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import LogsExplorer from '../../pages/LogsExplorer';
@@ -59,10 +59,39 @@ function Pipeline({ stages, metrics }) {
  * original record, not the platform's summary of it.
  */
 export default function LiveLogs({ onSelectLog, onInvestigate, searchQuery }) {
-  const { events, metrics, eventTotal, isReady } = useAnalysis();
+  const { events, metrics, eventTotal, isReady, queryEvents } = useAnalysis();
   const { events: liveEvents, connected } = useLiveEvents();
   const stats = useLiveStats(liveEvents);
   const [showPipeline, setShowPipeline] = useState(true);
+
+  // One page in memory, never the corpus. A real estate produces more events
+  // in a day than a browser can hold, so the server filters and pages and this
+  // holds only what is on screen.
+  const [page, setPage] = useState({ events: [], total: 0, offset: 0, loading: true });
+  const [filters, setFilters] = useState({ q: searchQuery || '', severity: '', host: '', user: '' });
+  const [offset, setOffset] = useState(0);
+  const PAGE = 500;
+
+  useEffect(() => { setOffset(0); }, [filters.q, filters.severity, filters.host, filters.user]);
+  useEffect(() => { setFilters(f => ({ ...f, q: searchQuery || '' })); }, [searchQuery]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPage(p => ({ ...p, loading: true }));
+    queryEvents({ offset, limit: PAGE, ...filters })
+      .then(r => {
+        if (cancelled) return;
+        setPage({
+          events: r.events || [],
+          total: r.total ?? 0,
+          totalUnfiltered: r.total_unfiltered ?? r.total ?? 0,
+          offset,
+          loading: false,
+        });
+      })
+      .catch(() => { if (!cancelled) setPage(p => ({ ...p, loading: false })); });
+    return () => { cancelled = true; };
+  }, [offset, filters, queryEvents]);
 
   return (
     <div className="flex flex-col gap-3 h-full">
@@ -89,7 +118,7 @@ export default function LiveLogs({ onSelectLog, onInvestigate, searchQuery }) {
       {connected && (
         <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 self-start">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          live — {(eventTotal || events.length).toLocaleString()} events indexed
+          live — {(eventTotal || 0).toLocaleString()} events indexed
         </span>
       )}
 
@@ -99,7 +128,17 @@ export default function LiveLogs({ onSelectLog, onInvestigate, searchQuery }) {
           not the platform's summary of it. */}
       <div className="flex-1 min-h-0">
         <LogsExplorer
-          logs={events}
+          logs={page.events}
+          serverPaged={{
+            total: page.total,
+            totalUnfiltered: page.totalUnfiltered,
+            offset: page.offset,
+            pageSize: PAGE,
+            loading: page.loading,
+            filters,
+            onFilter: next => setFilters(f => ({ ...f, ...next })),
+            onPage: delta => setOffset(o => Math.max(0, o + delta * PAGE)),
+          }}
           onSelectLog={onSelectLog}
           onInvestigate={onInvestigate}
           initialQuery={searchQuery}

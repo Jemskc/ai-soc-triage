@@ -14,11 +14,14 @@ batches, which is the same path the autopilot's inbox uses.
 
 ON --limit
 ----------
-Every red-team record is kept regardless of the limit; only benign records are
-trimmed. A limit that dropped attacks would quietly change the ground truth of
-whatever you measured next. The default keeps the dashboard responsive: the log
-view holds events in browser memory, so a million rows is not something the UI
-can show, and pretending otherwise wastes an hour before you find out.
+Defaults to everything. The limit existed only because the log view used to
+download the whole corpus into browser memory; it now asks the server for the
+page it is showing, so there is no reason to hold events back. A company with a
+billion events a day is the normal case, not an edge case, and a tool that
+needs the corpus trimmed to stay usable is not a SOC tool.
+
+Where a limit is given it trims benign records only. Dropping labelled attacks
+would quietly change the ground truth of whatever was measured next.
 
 Usage:
     python scripts/ingest_golden.py                      # 50k events, all attacks
@@ -86,9 +89,9 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--golden", type=Path, default=DEFAULT_GOLDEN)
     ap.add_argument("--url", default="http://localhost:8000")
-    ap.add_argument("--limit", type=int, default=50_000,
-                    help="max BENIGN events to send; 0 for all. Attacks are "
-                         "always sent in full.")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="max BENIGN events to send; 0 (default) sends every "
+                         "one. Attacks are always sent in full.")
     ap.add_argument("--batch", type=int, default=5_000)
     ap.add_argument("--key", default="")
     args = ap.parse_args()

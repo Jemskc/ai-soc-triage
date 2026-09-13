@@ -14,6 +14,11 @@ import { api } from '../utils/api';
  */
 const AnalysisContext = createContext(null);
 
+// Rows fetched for aggregate views. The log explorer does not use this — it
+// queries the server per page — so this only has to be big enough for the
+// severity mixes and top-N tables the other tabs draw.
+const EVENT_SAMPLE = 5000;
+
 const POLL_INTERVAL_MS = 1200;
 
 export function AnalysisProvider({ children, fallbackLogs = null }) {
@@ -104,17 +109,20 @@ export function AnalysisProvider({ children, fallbackLogs = null }) {
     if (status === 'loading') return undefined;
     (async () => {
       try {
-        const first = await api.events({ offset: 0, limit: 5000 });
+        // Only the first page, and only to learn the total and give the other
+        // tabs a sample to compute quick statistics from.
+        //
+        // This used to page through the entire corpus and concatenate it, so
+        // the browser held every event in memory. That is fine for the 4,633
+        // event demo corpus and impossible for a real estate: a million rows
+        // is roughly 274MB of JSON, and a company with a billion events a day
+        // is not an edge case, it is the normal case. No SIEM downloads its
+        // index to the client. The log view now asks the server for the page
+        // it is showing, and the server filters before it pages.
+        const first = await api.events({ offset: 0, limit: EVENT_SAMPLE });
         if (cancelled) return;
-        let rows = first.events || [];
-        setEventTotal(first.total || rows.length);
-        // Page through the remainder rather than asking for it all at once.
-        while (rows.length < (first.total || 0) && !cancelled) {
-          const next = await api.events({ offset: rows.length, limit: 5000 });
-          if (!next.events?.length) break;
-          rows = rows.concat(next.events);
-        }
-        if (!cancelled) setAllEvents(rows);
+        setEventTotal(first.total || (first.events || []).length);
+        setAllEvents(first.events || []);
       } catch {
         // Fall back to the bundle preview; the views still work, just shorter.
       }
@@ -199,6 +207,9 @@ export function AnalysisProvider({ children, fallbackLogs = null }) {
       startAnalysis,
       sendFeedback,
       isReady: status === 'ready' && Boolean(bundle),
+      // Server-side paged query. The browser keeps one page; filtering and
+      // ordering happen where the data is.
+      queryEvents: api.events,
       isRunning: status === 'running',
       // True when nothing real is loaded and the UI is showing bundled mocks.
       isDemoData: status !== 'ready' && Boolean(fallbackLogs),

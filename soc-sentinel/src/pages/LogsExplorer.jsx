@@ -200,7 +200,14 @@ function ExpandedRow({ log, onPivot, onSendToAI, onFindRelated, onInvestigate })
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function LogsExplorer({ logs, onSelectLog, onInvestigate, initialQuery = '' }) {
+export default function LogsExplorer({
+  logs, onSelectLog, onInvestigate, initialQuery = '', serverPaged = null,
+}) {
+  // When serverPaged is supplied, `logs` is ONE PAGE the server already
+  // filtered — the corpus is never in the browser. The counts below then have
+  // to come from the server too, or the view claims the estate contains only
+  // what happens to be on screen.
+  const srv = serverPaged;
   const [searchMode,   setSearchMode]   = useState('ai');
   const [aiQuery,      setAiQuery]      = useState('');
   const [queryInput,   setQueryInput]   = useState('');
@@ -373,7 +380,7 @@ export default function LogsExplorer({ logs, onSelectLog, onInvestigate, initial
                 : 'border-transparent text-muted hover:text-primary hover:bg-hover/50'
             }`}
           >
-            <span>All</span><span className="text-[10px]">{logs.length}</span>
+            <span>All</span><span className="text-[10px]">{(srv ? srv.total : logs.length).toLocaleString()}</span>
           </button>
           {sources.map(([src, cnt]) => (
             <button key={src} onClick={() => toggleSrc(src)}
@@ -558,8 +565,19 @@ export default function LogsExplorer({ logs, onSelectLog, onInvestigate, initial
         {/* ── META BAR ──────────────────────────────────────────────────── */}
         <div className="px-3 py-2 border-b border-border bg-panel flex items-center gap-2 flex-wrap shrink-0">
           <span className="text-muted text-xs">
-            Showing <span className="text-primary font-medium">{filtered.length.toLocaleString()}</span> of{' '}
-            <span className="text-primary">{logs.length.toLocaleString()}</span> logs
+            Showing{' '}
+            <span className="text-primary font-medium">
+              {srv
+                ? `${(srv.offset + 1).toLocaleString()}–${Math.min(srv.offset + srv.pageSize, srv.total).toLocaleString()}`
+                : filtered.length.toLocaleString()}
+            </span>{' '}
+            of <span className="text-primary">
+              {(srv ? srv.total : logs.length).toLocaleString()}
+            </span> logs
+            {srv && srv.totalUnfiltered > srv.total && (
+              <span className="text-muted"> (filtered from {srv.totalUnfiltered.toLocaleString()})</span>
+            )}
+            {srv?.loading && <span className="text-muted"> · loading…</span>}
           </span>
           {activeFilters.map((f, i) => (
             <span key={i} className="flex items-center gap-1 bg-blue-500/15 border border-blue-500/30 rounded px-2 py-0.5 text-[10px] text-blue-400 font-mono">
@@ -668,18 +686,41 @@ export default function LogsExplorer({ logs, onSelectLog, onInvestigate, initial
         </div>
 
         {/* ── PAGINATION ────────────────────────────────────────────────── */}
-        {totalPages > 1 && (
+        {(srv ? srv.total > srv.pageSize : totalPages > 1) && (
           <div className="border-t border-border px-4 py-2 flex items-center justify-between bg-panel shrink-0">
-            <span className="text-muted text-xs">Page {page} of {totalPages} ({filtered.length.toLocaleString()} records)</span>
+            <span className="text-muted text-xs">
+              {srv
+                ? `${(srv.offset + 1).toLocaleString()}–${Math.min(srv.offset + srv.pageSize, srv.total).toLocaleString()} of ${srv.total.toLocaleString()} records`
+                : `Page ${page} of ${totalPages} (${filtered.length.toLocaleString()} records)`}
+            </span>
+            {/* When the server is paging, these move the window it returns.
+                There is no "last page" jump: with an unbounded corpus the
+                server should not have to count to the end to answer. */}
             <div className="flex items-center gap-1">
-              <button onClick={() => setPage(1)} disabled={page === 1}
-                className="px-2 py-1 text-muted hover:text-primary disabled:opacity-30 transition-colors text-xs">«</button>
-              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                className="p-1 text-muted hover:text-primary disabled:opacity-30 transition-colors"><ChevronLeft size={14} /></button>
-              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                className="p-1 text-muted hover:text-primary disabled:opacity-30 transition-colors"><ChevronRight size={14} /></button>
-              <button onClick={() => setPage(totalPages)} disabled={page === totalPages}
-                className="px-2 py-1 text-muted hover:text-primary disabled:opacity-30 transition-colors text-xs">»</button>
+              {srv ? (
+                <>
+                  <button onClick={() => srv.onPage(-Math.ceil(srv.offset / srv.pageSize))}
+                    disabled={srv.offset === 0 || srv.loading}
+                    className="px-2 py-1 text-muted hover:text-primary disabled:opacity-30 transition-colors text-xs">«</button>
+                  <button onClick={() => srv.onPage(-1)}
+                    disabled={srv.offset === 0 || srv.loading}
+                    className="p-1 text-muted hover:text-primary disabled:opacity-30 transition-colors"><ChevronLeft size={14} /></button>
+                  <button onClick={() => srv.onPage(1)}
+                    disabled={srv.offset + srv.pageSize >= srv.total || srv.loading}
+                    className="p-1 text-muted hover:text-primary disabled:opacity-30 transition-colors"><ChevronRight size={14} /></button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => setPage(1)} disabled={page === 1}
+                    className="px-2 py-1 text-muted hover:text-primary disabled:opacity-30 transition-colors text-xs">«</button>
+                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                    className="p-1 text-muted hover:text-primary disabled:opacity-30 transition-colors"><ChevronLeft size={14} /></button>
+                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                    className="p-1 text-muted hover:text-primary disabled:opacity-30 transition-colors"><ChevronRight size={14} /></button>
+                  <button onClick={() => setPage(totalPages)} disabled={page === totalPages}
+                    className="px-2 py-1 text-muted hover:text-primary disabled:opacity-30 transition-colors text-xs">»</button>
+                </>
+              )}
             </div>
           </div>
         )}
