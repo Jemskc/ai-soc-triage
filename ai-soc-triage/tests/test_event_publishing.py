@@ -246,3 +246,49 @@ def test_event_file_rewrite_is_throttled():
     assert "EVENTS_REWRITE_SECONDS" in src
     assert "_events_written" in src
     assert autopilot.EVENTS_REWRITE_SECONDS > 0
+
+
+# ── ingest must not destroy the field the rules match on ─────────────────────
+# MESSAGE_FIELDS are all process-oriented and empty for authentication data, so
+# rebuilding raw_message from them wiped it. The same LANL corpus produced
+# 47,678 alerts through lanl_eval and zero through /ingest: not a detection
+# failure, a field destroyed on the way in.
+
+def test_ingest_keeps_a_supplied_raw_message():
+    import pandas as pd
+
+    import pipeline
+
+    events = [{
+        "timestamp": "2015-01-02 00:00:00", "event_id": "4624",
+        "computer": "C1003", "user": "U620", "source_ip": "C17693",
+        "process_name": "", "command_line": "", "parent_process": "",
+        "raw_message": "NTLM Network LogOn Success C17693->C1003",
+    }]
+    df = pd.DataFrame(events).fillna("")
+    for col in pipeline.STANDARD_COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+
+    present = [c for c in pipeline.MESSAGE_FIELDS if c in df.columns]
+    rebuilt = df[present].astype(str).agg(" ".join, axis=1).str.strip()
+    supplied = df["raw_message"].astype(str).str.strip()
+    result = supplied.where(supplied != "", rebuilt)
+
+    assert "NTLM" in result.iloc[0], "the rule's only matchable field was erased"
+
+
+def test_ingest_still_builds_raw_message_when_absent():
+    import pandas as pd
+
+    import pipeline
+
+    df = pd.DataFrame([{"process_name": "rundll32.exe", "command_line": "-k netsvcs"}])
+    for col in pipeline.STANDARD_COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+    present = [c for c in pipeline.MESSAGE_FIELDS if c in df.columns]
+    rebuilt = df[present].astype(str).agg(" ".join, axis=1).str.strip()
+    supplied = df["raw_message"].astype(str).str.strip()
+    result = supplied.where(supplied != "", rebuilt)
+    assert "rundll32.exe" in result.iloc[0]

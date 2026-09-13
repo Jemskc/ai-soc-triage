@@ -1210,9 +1210,24 @@ def ingest(req: IngestRequest):
     for col in _pipeline.STANDARD_COLUMNS:
         if col not in df.columns:
             df[col] = ""
+    # Rebuild raw_message only where the caller did not provide one.
+    #
+    # This used to overwrite it unconditionally by joining MESSAGE_FIELDS,
+    # which are all process-oriented (process_name, command_line, image_path,
+    # ...) and therefore empty for authentication telemetry. Ingesting LANL
+    # replaced "NTLM Network LogOn Success C17693->C1003" with an empty string,
+    # so RULE-015 — which matches \bntlm\b against raw_message — could not
+    # fire at all. The same corpus through lanl_eval produced 47,678 alerts and
+    # through /ingest produced zero, which looked like a detection failure and
+    # was a field being destroyed on the way in.
     present = [c for c in _pipeline.MESSAGE_FIELDS if c in df.columns]
     if present:
-        df["raw_message"] = df[present].astype(str).agg(" ".join, axis=1).str.strip()
+        rebuilt = df[present].astype(str).agg(" ".join, axis=1).str.strip()
+        if "raw_message" in df.columns:
+            supplied = df["raw_message"].astype(str).str.strip()
+            df["raw_message"] = supplied.where(supplied != "", rebuilt)
+        else:
+            df["raw_message"] = rebuilt
 
     ap = _autopilot.get_autopilot(engine_factory=_engine_factory)
     ap.submit(df, origin=req.origin)
