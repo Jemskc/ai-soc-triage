@@ -1,0 +1,30 @@
+{
+ "created": "2026-09-12T21:37:49",
+ "source": {
+  "auth": "../auth.txt.gz",
+  "redteam": "../redteam.txt.gz"
+ },
+ "seed": 1337,
+ "ground_truth": {
+  "labelled_lines": 749,
+  "distinct_tuples": 715,
+  "malformed_lines": 0
+ },
+ "corpus": {
+  "auth_events_total": 1051430459,
+  "benign_total": 1051429757,
+  "malicious_total": 702,
+  "true_base_rate": 6.676618448619625e-07,
+  "span_days": 58.0
+ },
+ "sample": {
+  "events_written": 1000702,
+  "malicious_kept": 702,
+  "benign_kept": 1000000,
+  "benign_sampling_fraction": 0.0009510858840948706,
+  "sample_base_rate": 0.0007015075417057226
+ },
+ "sha256": "390810c01bf9ee123ec9570afe2afcc2302b91c5637d3ca1bd3fceea39a8be9c",
+ "how_to_read_precision": "Malicious records are over-represented here by roughly 1/benign_sampling_fraction. Precision measured on this file is optimistic by about that factor and must be corrected to true_base_rate before it is quoted. Recall needs no correction: every red-team record is present.",
+ "positive_class_warning": "The positive class is 702 records and cannot grow \u2014 the corpus contains no more labelled attacks. Size confidence in any recall figure to that number, not to the file."
+}
