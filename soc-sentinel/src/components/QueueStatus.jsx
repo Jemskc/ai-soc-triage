@@ -53,7 +53,13 @@ export default function QueueStatus({ onOpenQuestions }) {
       action: parked > 0 ? onOpenQuestions : null },
   ];
 
-  const pct = total ? Math.round((done / total) * 100) : 0;
+  // incidents_total counts what this process has funnelled. After a restart
+  // it is 0 while decided cases restored from disk are not, and the header
+  // read "8 of 0 decided — 0%", which looks like a broken counter rather than
+  // a restored session. Report the count on its own when there is no
+  // denominator to divide by.
+  const known = total >= done;
+  const pct = known && total ? Math.round((done / total) * 100) : 0;
 
   return (
     <div className="bg-card border border-border rounded-lg overflow-hidden">
@@ -62,9 +68,11 @@ export default function QueueStatus({ onOpenQuestions }) {
           Investigation queue
         </span>
         <span className="text-primary text-[10px]">
-          {done.toLocaleString()} of {total.toLocaleString()} decided
+          {known
+            ? `${done.toLocaleString()} of ${total.toLocaleString()} decided`
+            : `${done.toLocaleString()} decided (restored from earlier runs)`}
         </span>
-        <span className="ml-auto text-muted text-[10px]">{pct}%</span>
+        {known && <span className="ml-auto text-muted text-[10px]">{pct}%</span>}
       </div>
 
       <div className="h-1 bg-panel">

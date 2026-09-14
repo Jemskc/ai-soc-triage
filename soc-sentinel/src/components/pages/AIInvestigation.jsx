@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Brain, HelpCircle, Search, Lightbulb, AlertTriangle, Gauge,
-  ChevronDown, ChevronRight, CheckCircle2, Clock, Ban, BookOpen,
+  ChevronDown, ChevronRight, Clock, Ban, BookOpen, ListChecks,
 } from 'lucide-react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { useLiveEvents, useLiveInvestigation } from '../../hooks/useLiveEvents';
@@ -58,8 +58,20 @@ function Reasoning({ caseFile }) {
         </ul>
       </Section>
 
-      {/* 2 + 3 — what I checked, and what came back */}
-      <Section icon={Search} title={`What I checked (${steps.length} steps)`}>
+      {/* 2 + 3 — what I checked. Collapsed by default.
+          The step-by-step trace is how the conclusion was reached, not the
+          conclusion; leading with eleven numbered tool calls buried the one
+          line an analyst actually needs. It stays one click away because a
+          verdict nobody can audit is worth nothing. */}
+      <details className="group">
+        <summary className="flex items-center gap-1.5 mb-1.5 cursor-pointer
+                            text-muted hover:text-primary list-none">
+          <Search size={11} className="text-blue-400" />
+          <span className="text-[10px] uppercase tracking-wider">
+            How I got there — {steps.length} steps
+          </span>
+          <ChevronRight size={10} className="group-open:rotate-90 transition-transform" />
+        </summary>
         <div className="space-y-1">
           {steps.map((s, i) => {
             const refused = /already ran|no tools remain|did not come back|never called|not established/i
@@ -94,10 +106,10 @@ function Reasoning({ caseFile }) {
             );
           })}
         </div>
-      </Section>
+      </details>
 
       {/* 4 — why it matters */}
-      <Section icon={Lightbulb} title="What I concluded, and why it matters">
+      <Section icon={Lightbulb} title="Why I decided that">
         <div className="space-y-1.5">
           <p className="text-primary text-xs leading-relaxed">{v.analyst_summary}</p>
           {v.business_impact && (
@@ -119,6 +131,22 @@ function Reasoning({ caseFile }) {
         </div>
       </Section>
 
+      {/* The action. A verdict with no instruction attached leaves the
+          analyst to work out what it implies, which is the work the agent was
+          supposed to have done. */}
+      {Array.isArray(v.recommended_actions) && v.recommended_actions.length > 0 && (
+        <Section icon={ListChecks} title="What to do about it">
+          <ul className="space-y-1">
+            {v.recommended_actions.map((a, i) => (
+              <li key={i} className="text-primary text-[11px] leading-relaxed flex gap-1.5">
+                <span className="text-blue-400">{i + 1}.</span>
+                <span>{typeof a === 'string' ? a : (a.action || JSON.stringify(a))}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
       {/* 5 — confidence, and whether the claim is backed */}
       <Section icon={Gauge} title="How confident I am">
         <div className="flex items-center gap-3 flex-wrap text-[11px]">
@@ -131,7 +159,7 @@ function Reasoning({ caseFile }) {
           )}
           {!inv.complete && (
             <span className="text-amber-400 inline-flex items-center gap-1">
-              <AlertTriangle size={10} /> ran out of budget — needs a human
+              <AlertTriangle size={10} /> decided on a spent budget — lower trust
             </span>
           )}
         </div>
@@ -165,87 +193,153 @@ function Reasoning({ caseFile }) {
  * a conclusion: why did you look at this, what did you check, what did you
  * find, why does it matter, and how sure are you.
  */
+// What the verdict actually means, for someone who did not write the enum.
+// "SUPPRESS" is not an answer to "is it malicious"; "Not malicious" is.
+const CONCLUSION = {
+  ESCALATE: { text: 'Malicious — escalated', cls: 'text-red-400' },
+  SUPPRESS: { text: 'Not malicious — closed', cls: 'text-emerald-400' },
+  UNKNOWN:  { text: 'Inconclusive — evidence did not settle it', cls: 'text-amber-400' },
+};
+const conclusionOf = v => CONCLUSION[v] || { text: v || 'no verdict', cls: 'text-muted' };
+
 export default function AIInvestigation({ selectedId, onSelect }) {
   const { cases, incidentsByUrgency, isReady } = useAnalysis();
   const { events } = useLiveEvents();
   const { current: live, finished } = useLiveInvestigation(events);
+  const [openId, setOpenId] = useState(selectedId || null);
 
-  const investigated = incidentsByUrgency.filter(i => cases?.[i.incident_id]?.investigation);
-  const current = selectedId && cases?.[selectedId]
-    ? cases[selectedId]
-    : (investigated[0] ? cases[investigated[0].incident_id] : null);
+  // Built from the case files, not by filtering the current incident list.
+  // The funnel republishes that list per batch, so filtering it dropped every
+  // case the agent had already decided.
+  const rank = Object.fromEntries(
+    incidentsByUrgency.map((i, n) => [i.incident_id, n]));
+  const investigated = Object.values(cases || {})
+    .filter(c => c?.investigation)
+    .sort((a, b) => {
+      const ra = rank[a.incident_id] ?? Infinity;
+      const rb = rank[b.incident_id] ?? Infinity;
+      if (ra !== rb) return ra - rb;
+      return (b.risk?.risk_score ?? 0) - (a.risk?.risk_score ?? 0);
+    });
 
-  if (!isReady) {
-    return <p className="text-muted text-xs">No analysis yet.</p>;
-  }
+  if (!isReady) return <p className="text-muted text-xs">No analysis yet.</p>;
+
+  const malicious = investigated.filter(
+    c => c.investigation?.verdict?.verdict === 'ESCALATE').length;
+  const clean = investigated.filter(
+    c => c.investigation?.verdict?.verdict === 'SUPPRESS').length;
 
   return (
-    <div className="flex gap-4 h-full">
-      <div className="w-56 shrink-0 space-y-1 overflow-y-auto">
-        {live && (
-          <div className="mb-2 p-2 rounded border border-blue-500/40 bg-blue-500/5">
-            <div className="flex items-center gap-1.5">
-              <Brain size={11} className="text-blue-400 animate-pulse" />
-              <span className="text-blue-300 text-[10px] font-semibold">investigating now</span>
-            </div>
-            <p className="text-primary text-[10px] font-mono mt-0.5">{live.incidentId}</p>
-            <p className="text-muted text-[10px]">
-              {live.steps.length} steps · {TOOL_PLAIN[live.steps.at(-1)?.tool] || ''}
-            </p>
+    <div className="space-y-3">
+      {/* Running now. Each case is added to the list below the moment it
+          concludes — an analyst does not wait for the whole corpus. */}
+      {live && (
+        <div className="bg-card border border-blue-500/40 rounded-lg p-3">
+          <div className="flex items-center gap-2">
+            <Brain size={12} className="text-blue-400 animate-pulse" />
+            <span className="text-blue-300 text-[11px] font-semibold">
+              Investigating now
+            </span>
+            <span className="text-primary text-[11px] font-mono">{live.incidentId}</span>
+            <span className="ml-auto text-muted text-[10px]">
+              step {live.steps.length} · {TOOL_PLAIN[live.steps.at(-1)?.tool] || ''}
+            </span>
           </div>
-        )}
+          {live.steps.at(-1)?.thought && (
+            <p className="text-muted text-[10px] mt-1 leading-relaxed line-clamp-2">
+              {live.steps.at(-1).thought}
+            </p>
+          )}
+        </div>
+      )}
 
-        <p className="text-muted text-[10px] uppercase tracking-wider px-1 mb-1">
-          Investigated ({investigated.length})
-        </p>
-        {investigated.map(i => {
-          const c = cases[i.incident_id];
-          const v = c?.investigation?.verdict || {};
-          const active = current?.incident_id === i.incident_id;
+      <div className="bg-card border border-border rounded-lg overflow-hidden">
+        <div className="flex items-center gap-2 px-3 py-2 bg-panel border-b border-border">
+          <Brain size={13} className="text-blue-400" />
+          <span className="text-muted text-[10px] uppercase tracking-wider">
+            Decided by the AI
+          </span>
+          <span className="text-primary text-[10px]">{investigated.length}</span>
+          {malicious > 0 && (
+            <span className="px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 text-[9px]">
+              {malicious} malicious
+            </span>
+          )}
+          {clean > 0 && (
+            <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[9px]">
+              {clean} not malicious
+            </span>
+          )}
+        </div>
+
+        {/* Straight off the event stream, before the stored case file lands. */}
+        {finished.filter(f => !cases?.[f.incidentId]).map(f => (
+          <div key={`live-${f.incidentId}`}
+               className="flex items-center gap-3 px-3 py-2 border-b border-border bg-emerald-500/5">
+            <Brain size={11} className="text-emerald-400 shrink-0" />
+            <span className="font-mono text-[10px] text-primary">{f.incidentId}</span>
+            <span className={`text-[10px] font-semibold ${conclusionOf(f.verdict).cls}`}>
+              {conclusionOf(f.verdict).text}
+            </span>
+            <span className="ml-auto text-muted text-[9px]">writing up…</span>
+          </div>
+        ))}
+
+        {investigated.length === 0 && !live ? (
+          <p className="text-muted text-xs p-4">
+            No investigations finished yet. Each takes about 85 seconds, and every
+            one is kept here as soon as it concludes.
+          </p>
+        ) : investigated.map(c => {
+          const inv = c.investigation || {};
+          const v = inv.verdict || {};
+          const concl = conclusionOf(v.verdict);
+          const open = openId === c.incident_id;
           return (
-            <button key={i.incident_id}
-              onClick={() => onSelect?.(i.incident_id)}
-              className={`w-full text-left px-2 py-1.5 rounded transition-colors ${
-                active ? 'bg-hover' : 'hover:bg-panel'}`}>
-              <p className="text-primary text-[10px] font-mono truncate">{i.incident_id}</p>
-              <p className="text-muted text-[10px] truncate">{i.hosts?.[0]}</p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className={`text-[9px] ${
-                  v.verdict === 'ESCALATE' ? 'text-red-400'
-                    : v.verdict === 'SUPPRESS' ? 'text-emerald-400' : 'text-amber-400'}`}>
-                  {v.verdict || '—'}
+            <div key={c.incident_id} className="border-b border-border last:border-0">
+              <button
+                onClick={() => { setOpenId(open ? null : c.incident_id);
+                                 if (!open) onSelect?.(c.incident_id); }}
+                className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-hover transition-colors"
+              >
+                {open ? <ChevronDown size={12} className="text-muted shrink-0" />
+                      : <ChevronRight size={12} className="text-muted shrink-0" />}
+                <span className="font-mono text-[10px] text-blue-400 shrink-0 w-[112px]">
+                  {c.incident_id}
                 </span>
-                <span className="text-muted text-[9px]">
-                  {c?.investigation?.step_count} steps
+                <span className="text-muted text-[10px] shrink-0 w-[120px] truncate">
+                  {c.incident?.hosts?.[0] || '—'} · {c.incident?.users?.[0] || '—'}
                 </span>
-              </div>
-            </button>
+                {/* The label, which is the reason this row exists. */}
+                <span className={`text-[11px] font-semibold shrink-0 w-[210px] ${concl.cls}`}>
+                  {concl.text}
+                </span>
+                <span className="text-muted text-[10px] truncate flex-1 min-w-0">
+                  {v.analyst_summary || ''}
+                </span>
+                {Number.isFinite(v.confidence) && (
+                  <span className="text-muted text-[9px] shrink-0">
+                    conf {v.confidence}
+                  </span>
+                )}
+                {Number.isFinite(v.urgency_score) && (
+                  <span className="text-muted text-[9px] shrink-0">
+                    urgency {v.urgency_score}/10
+                  </span>
+                )}
+                <span className="text-muted text-[9px] shrink-0 inline-flex items-center gap-1">
+                  <Clock size={9} /> {inv.elapsed_seconds}s
+                </span>
+              </button>
+
+              {open && (
+                <div className="px-4 pb-4 pt-1 bg-base">
+                  <Reasoning caseFile={c} />
+                </div>
+              )}
+            </div>
           );
         })}
-      </div>
-
-      <div className="flex-1 min-w-0 overflow-y-auto">
-        {current ? (
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <div className="flex items-center gap-2 px-3 py-2 bg-panel border-b border-border">
-              <Brain size={13} className="text-blue-400" />
-              <span className="text-primary text-xs font-mono">{current.incident_id}</span>
-              <span className="text-muted text-[10px]">
-                {current.incident?.hosts?.[0]}
-              </span>
-              <span className="ml-auto text-muted text-[10px] inline-flex items-center gap-1">
-                <Clock size={9} /> {current.investigation?.elapsed_seconds}s
-              </span>
-            </div>
-            <div className="p-4">
-              <Reasoning caseFile={current} />
-            </div>
-          </div>
-        ) : (
-          <p className="text-muted text-xs">
-            No completed investigations yet — the AI is still working.
-          </p>
-        )}
       </div>
     </div>
   );

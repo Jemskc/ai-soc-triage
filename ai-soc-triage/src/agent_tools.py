@@ -24,6 +24,7 @@ findings and an agent that conflates them will clear a case it cannot see.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable
@@ -109,12 +110,26 @@ class ToolBox:
     """The tools available for one investigation."""
 
     def __init__(self, evidence_engine, knowledge_base, df=None,
-                 assets=None, case_memory=None, allow_ask_human=True) -> None:
+                 assets=None, case_memory=None, allow_ask_human=None) -> None:
         self.evidence = evidence_engine
         self.kb = knowledge_base
         self.df = df
         self.assets = assets
         self.memory = case_memory
+        # The agent decides; it does not hand the decision back.
+        #
+        # Parking a case as a question to a human is the one move that looks
+        # like diligence and behaves like an outage: the incident leaves the
+        # queue, nothing is concluded, and the backlog grows while the GPU sits
+        # idle. An analyst opening the dashboard wants a verdict they can
+        # disagree with, not a question they have to answer before the system
+        # will commit to anything. Where the evidence genuinely does not
+        # settle it, the honest output is a low-confidence verdict that says
+        # what is missing — which is still a decision.
+        #
+        # Set SOC_ALLOW_ASK_HUMAN=1 to restore the old behaviour.
+        if allow_ask_human is None:
+            allow_ask_human = os.getenv("SOC_ALLOW_ASK_HUMAN", "").strip() in ("1", "true", "yes")
         self.allow_ask_human = allow_ask_human
         self.calls: list[ToolCall] = []
         self._specs = self._build_specs()
@@ -173,7 +188,7 @@ class ToolBox:
                 {"entity": "user or host", "hours": "window, default 6"},
                 self._timeline,
             ),
-            ToolSpec(
+            *([ToolSpec(
                 "ask_analyst",
                 "Put one question to a human and pause. Use ONLY for a fact the "
                 "telemetry cannot contain — whether a change window was "
@@ -183,7 +198,10 @@ class ToolBox:
                  "why": "what it would let you conclude",
                  "options": "optional list of likely answers"},
                 self._ask_analyst,
-            ),
+            )] if self.allow_ask_human else []),
+            # Listed only when it is usable. A tool the agent can see is a tool
+            # it will try, and being refused mid-investigation costs a whole
+            # model round trip to learn something the catalogue could have said.
             ToolSpec(
                 "find_similar_cases",
                 "Previously investigated cases resembling this one, with their "

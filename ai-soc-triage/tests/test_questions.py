@@ -20,24 +20,37 @@ def store(tmp_path):
 
 # --- the tool ---------------------------------------------------------------
 
-def test_asking_raises_rather_than_returning():
-    """It has to unwind the loop so the case can be parked with its transcript
-    rather than the agent carrying on without an answer."""
+def test_the_agent_is_not_offered_the_question_tool_by_default():
+    """The agent decides; it does not hand the decision back.
+
+    Parking a case as a question looks like diligence and behaves like an
+    outage: the incident leaves the queue, nothing is concluded, and the
+    backlog grows while the GPU idles. The tool is withheld rather than
+    discouraged — an agent that cannot see a tool cannot call it, which is
+    more reliable than a prompt asking it not to.
+    """
     tb = ToolBox(None, None)
+    assert "ask_analyst" not in tb.names()
+    assert "ask_analyst" not in tb.catalogue()
+
+
+def test_asking_raises_rather_than_returning_when_enabled():
+    """Still has to unwind the loop when it is switched back on, so the case
+    is parked with its transcript rather than continuing without an answer."""
+    tb = ToolBox(None, None, allow_ask_human=True)
     with pytest.raises(AskedHuman) as caught:
         tb.run(1, "ask_analyst", {"question": "Was this change window approved?",
                                   "why": "would make it routine"})
     assert "change window" in caught.value.question
 
 
-def test_asking_can_be_disabled():
-    tb = ToolBox(None, None, allow_ask_human=False)
-    call = tb.run(1, "ask_analyst", {"question": "anything?"})
-    assert call.result["available"] is False
+def test_the_environment_can_switch_it_back_on(monkeypatch):
+    monkeypatch.setenv("SOC_ALLOW_ASK_HUMAN", "1")
+    assert "ask_analyst" in ToolBox(None, None).names()
 
 
 def test_empty_question_is_rejected():
-    tb = ToolBox(None, None)
+    tb = ToolBox(None, None, allow_ask_human=True)
     assert "error" in tb.run(1, "ask_analyst", {"question": "  "}).result
 
 
