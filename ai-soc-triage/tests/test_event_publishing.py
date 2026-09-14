@@ -220,17 +220,24 @@ def test_retention_cap_exists_and_announces_itself():
 # inbox, so during a large import the Alerts tab stayed empty for the entire
 # run. New logs may outrank deep analysis; they must not cancel it.
 
-def test_analysis_gets_a_guaranteed_slice_while_logs_are_arriving():
+def test_analysis_is_never_blocked_by_the_ingest_queue():
+    """The property, not the mechanism.
+
+    This was first solved with a minimum-slice floor inside the shared loop,
+    which stopped total starvation but still made ingestion wait for inference.
+    Separate threads achieve it properly, so the test asserts what must be true
+    rather than how it happens to be arranged.
+    """
     import inspect
 
     import autopilot
 
     src = inspect.getsource(autopilot.Autopilot._investigate_pending)
-    assert "MIN_CASES_PER_CYCLE" in src, (
-        "without a floor the ingest queue starves the agent indefinitely")
-    # The unconditional yield must be gone.
+    # The agent must never abandon its work because logs are arriving.
     assert "if self._stop.is_set() or not self.inbox.empty():" not in src
-    assert autopilot.MIN_CASES_PER_CYCLE >= 1
+    assert "not self.inbox.empty()" not in src, (
+        "the agent thread does not block the ingest thread and must not yield "
+        "to it")
 
 
 def test_event_file_rewrite_is_throttled():
@@ -354,3 +361,36 @@ def test_published_events_expose_the_row_index():
     src = __import__("inspect").getsource(pipeline.build_event_rows)
     assert '"rowIndex"' in src
     assert "int(idx)" in src
+
+
+# ── ingestion must not wait for model inference ──────────────────────────────
+# _run_cycle funnelled a batch and then investigated cases at ~90s each in the
+# same thread, so the next batch could not be processed until the AI finished.
+# Importing 20,200 events left 15,200 queued behind inference and the log view
+# showed 5,000 of 20,200 with nothing explaining why.
+
+def test_ingest_and_agents_run_on_separate_threads():
+    import inspect
+
+    import autopilot
+
+    start = inspect.getsource(autopilot.Autopilot.start)
+    assert "_agent_loop" in start, "the agents need their own thread"
+
+    work = inspect.getsource(autopilot.Autopilot._work_loop)
+    assert "_investigate_pending" not in work, (
+        "the ingest loop must not block on model inference")
+
+    cycle = inspect.getsource(autopilot.Autopilot._run_cycle)
+    assert "_investigate_pending" not in cycle, (
+        "funnelling a batch must not wait for the agents")
+
+
+def test_agent_loop_exists_and_is_independent():
+    import inspect
+
+    import autopilot
+
+    src = inspect.getsource(autopilot.Autopilot._agent_loop)
+    assert "_investigate_pending" in src
+    assert "self._pending" in src

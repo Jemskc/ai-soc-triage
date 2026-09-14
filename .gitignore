@@ -54,3 +54,8 @@ ai-soc-triage/data/inventory.json
 # redteam.txt.gz is the ground-truth label file; kept out too so the data and
 # its labels stay together outside the repo.
 *.txt.gz
+
+# Process bookkeeping, not source
+ai-soc-triage/output/*.pid
+ai-soc-eval/*.pid
+ai-soc-triage/output/supervisor.log
