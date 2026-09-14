@@ -45,8 +45,8 @@ WATCH_INTERVAL_SECONDS = 5
 # cannot starve whatever arrives next.
 CASES_PER_CYCLE = 10
 
-# Analysed every cycle even while logs are still arriving. Without a floor the
-# agent yields to the ingest queue forever and nothing is ever investigated.
+# Superseded by running the agents on their own thread: there is no longer a
+# shared loop to be starved in. Kept only so nothing importing it breaks.
 MIN_CASES_PER_CYCLE = 3
 
 # Floor between full rewrites of the event file. The dashboard polls it; a
@@ -58,6 +58,14 @@ EVENTS_REWRITE_SECONDS = 5.0
 # so this is a UI limit, not an analysis one — the funnel has already seen
 # every event by the time trimming happens.
 MAX_RETAINED_EVENTS = 250_000
+
+# Incidents accumulate across batches. They used to be replaced by each new
+# batch's output, so an incident the agent had spent 90 seconds investigating
+# vanished from the bundle the moment the next batch funnelled — the verdict
+# survived in _verdicts, but nothing in the UI could find the incident it
+# belonged to, and the AI Investigation tab showed "Investigated (0)" beside
+# seven finished cases.
+MAX_RETAINED_INCIDENTS = 5_000
 
 # Campaign-scope surfaces: they reason across the whole case set rather than
 # one incident, so they run once the backlog is worked rather than per case.
@@ -209,6 +217,54 @@ class Autopilot:
             self.state.cases_analysed = len(self._verdicts)
             self.bus.publish("state.restored", verdicts=len(self._verdicts))
 
+        # Put the unfinished work back in the queue.
+        #
+        # Only verdicts were restored, so a restart left the agent idle with a
+        # backlog on disk: 223 incidents published, one decided, `pending_cases`
+        # 0, stage "idle". The corpus was never going to be finished, and
+        # because a restart happens for ordinary reasons — a deploy, an OOM,
+        # the supervisor recovering a crash — the backlog silently evaporated
+        # every time. The incidents are in the published bundle; anything
+        # without a verdict still needs one.
+        self._requeue_undecided()
+
+    def _requeue_undecided(self) -> None:
+        """Re-queue published incidents that were never decided."""
+        from pipeline import ANALYSIS_PATH
+
+        if not ANALYSIS_PATH.exists():
+            return
+        try:
+            bundle = json.loads(ANALYSIS_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+
+        incidents = bundle.get("incidents") or []
+        if not incidents:
+            return
+        # _merge_incidents takes the same lock, and it is a plain Lock, not an
+        # RLock — calling it from inside the critical section deadlocked the
+        # process during startup, after the model had loaded and before the
+        # port was bound. It looked exactly like a slow model load.
+        self._merge_incidents(incidents)
+
+        with self._lock:
+            known = {i["incident_id"] for i in self._pending}
+            fresh = [i for i in incidents
+                     if i.get("incident_id")
+                     and i["incident_id"] not in self._verdicts
+                     and i["incident_id"] not in known]
+            if not fresh:
+                return
+            self._pending = sorted(
+                self._pending + fresh,
+                key=lambda i: -i.get("evidence_weight", 0))
+            self.state.pending_cases = len(self._pending)
+            self.state.incidents_total = max(
+                self.state.incidents_total, len(self._all_incidents))
+        self.bus.publish("queue.restored", requeued=len(fresh),
+                         pending=self.state.pending_cases)
+
     def start(self, watch_inbox: bool = True) -> None:
         if self.state.running:
             return
@@ -217,6 +273,10 @@ class Autopilot:
         self.state.running = True
         self._worker = threading.Thread(target=self._work_loop, daemon=True, name="autopilot")
         self._worker.start()
+        # Separate thread so ingestion and investigation proceed together.
+        self._agent = threading.Thread(
+            target=self._agent_loop, daemon=True, name="autopilot-agents")
+        self._agent.start()
         if watch_inbox:
             INBOX_DIR.mkdir(parents=True, exist_ok=True)
             self._watcher = threading.Thread(
@@ -378,13 +438,21 @@ class Autopilot:
     # -- the worker --------------------------------------------------------
 
     def _work_loop(self) -> None:
+        """Ingest and funnel. Never waits for the agents.
+
+        These used to share a thread: _run_cycle funnelled a batch and then
+        investigated cases at roughly ninety seconds each, so the next batch
+        could not be processed until the AI finished. Importing 20,200 events
+        left 15,200 of them queued behind model inference, and the log view
+        showed 5,000 of 20,200 with no indication why.
+
+        The two stages have nothing in common — the funnel is CPU and the
+        agents are GPU — so they run independently and both make progress.
+        """
         while not self._stop.is_set():
             try:
                 batch = self.inbox.get(timeout=2)
             except queue.Empty:
-                # Nothing new arrived; keep chewing through the agent backlog.
-                if self._pending:
-                    self._investigate_pending()
                 continue
             try:
                 self._run_cycle(batch)
@@ -393,6 +461,21 @@ class Autopilot:
                 self.bus.publish("cycle.failed", error=str(exc))
             finally:
                 self.state.queued_batches = self.inbox.qsize()
+
+    def _agent_loop(self) -> None:
+        """Investigate whatever is pending, continuously and independently."""
+        while not self._stop.is_set():
+            has_work = False
+            with self._lock:
+                has_work = bool(self._pending)
+            if not has_work:
+                self._stop.wait(2)
+                continue
+            try:
+                self._investigate_pending()
+            except Exception as exc:  # noqa: BLE001
+                self.state.last_error = str(exc)
+                self.bus.publish("agents.failed", error=str(exc))
 
     def _run_cycle(self, df: pd.DataFrame) -> None:
         """Deterministic stages first, published immediately; agents after."""
@@ -469,7 +552,7 @@ class Autopilot:
             deferred=len(outcome.deferred),
             coverage=outcome.to_dict().get("stream_summary", {}),
         )
-        self._all_incidents = outcome.incidents
+        self._merge_incidents(outcome.incidents)
 
         # Business context is derived from the same telemetry when no CMDB is
         # configured, so the agent can reason about what is at stake.
@@ -480,7 +563,32 @@ class Autopilot:
         # deterministic pass finishes rather than when the agents catch up.
         self._publish_bundle()
         self._route(outcome.incidents)
-        self._investigate_pending()
+        # The agent thread picks these up on its own. Calling it here is what
+        # made ingestion wait for model inference.
+
+    def _merge_incidents(self, incidents: list[dict[str, Any]]) -> None:
+        """Add this batch's incidents to the running set, keeping the old ones.
+
+        A later batch can carry a newer version of an incident already held —
+        same id, more alerts — so the newer version wins. Under the retention
+        cap, incidents that have been decided are kept and undecided ones are
+        dropped oldest-first: a finished investigation with nothing to point at
+        is worse than a stale open incident.
+        """
+        with self._lock:
+            merged: dict[str, dict[str, Any]] = {
+                i["incident_id"]: i for i in self._all_incidents}
+            for inc in incidents:
+                merged[inc["incident_id"]] = inc
+
+            if len(merged) > MAX_RETAINED_INCIDENTS:
+                decided = [i for k, i in merged.items() if k in self._verdicts]
+                undecided = [i for k, i in merged.items() if k not in self._verdicts]
+                room = max(0, MAX_RETAINED_INCIDENTS - len(decided))
+                keep = decided + undecided[-room:] if room else decided
+                merged = {i["incident_id"]: i for i in keep}
+
+            self._all_incidents = list(merged.values())
 
     def _route(self, incidents: list[dict[str, Any]]) -> None:
         """Announce which surfaces each incident belongs on.
@@ -577,8 +685,8 @@ class Autopilot:
             # Alerts tab stayed empty for as long as the import ran. A minimum
             # slice per cycle means findings appear while logs are still
             # arriving, which is the whole point of a live console.
-            if done >= MIN_CASES_PER_CYCLE and not self.inbox.empty():
-                break
+            # No yield to the inbox: ingestion runs on its own thread and is
+            # not waiting on this one.
             with self._lock:
                 if not self._pending:
                     break
