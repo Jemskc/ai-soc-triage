@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import queue
 import json
 import re
 import sys
@@ -9,15 +11,18 @@ import os
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from llm_backend import get_llm_backend
+from manual_review import ManualReviewQueue as _ManualReviewQueue
 from ai_triage import triage_alert
 
 
@@ -145,6 +150,17 @@ elif API_KEY:
                         "http://localhost:5173", "http://127.0.0.1:5173"]
 else:
     _ALLOWED_ORIGINS = ["*"]
+
+
+# Every response went out uncompressed. The log view alone is 3.4MB of JSON
+# that gzips to 0.3MB — an eleven-fold difference, paid on every page load and
+# every four-second refresh. On the machine running the server that is
+# invisible; over an SSH tunnel or a VPN it is the difference between a page
+# that loads and a page that never finishes.
+#
+# minimum_size skips the small JSON replies, where the compression cost is
+# larger than the saving.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.add_middleware(
     CORSMiddleware,
@@ -881,12 +897,17 @@ def reset_everything(req: ResetRequest):
     if not req.confirm:
         return {
             "error": "refused",
-            "why": ("This discards every ingested event, incident, verdict and "
-                    "open question. Send {\"confirm\": true} if that is what "
-                    "you want."),
+            "why": ("This discards every ingested event, incident, verdict, "
+                    "open question and analyst-submitted review. Send "
+                    "{\"confirm\": true} if that is what you want."),
         }
     pilot = _autopilot.get_autopilot(engine_factory=_engine_factory)
     result = pilot.reset()
+    # Logs an analyst sent for review belong to the corpus that was cleared.
+    # Leaving them behind means "clear everything" leaves a tab still holding
+    # evaluations of events that no longer exist anywhere else in the system —
+    # ids that resolve to nothing, next to a fresh empty dashboard.
+    result.setdefault("cleared", {})["manual_reviews"] = _manual_review.clear()
     return {"ok": True, **result}
 
 
@@ -935,6 +956,33 @@ def list_sources():
     }
 
 
+_WHEN_FORMATS = (
+    "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S.%f",
+    "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d",
+)
+
+
+def _parse_when(value: Any) -> datetime | None:
+    """Read a timestamp in any of the shapes this corpus actually contains.
+
+    Events arrive as "2015-01-01 00:00:03" from the funnel and as
+    "2015-01-01T01:29:27.000Z" once they have been through the browser, so a
+    single format string silently matches half the corpus.
+    """
+    if not value:
+        return None
+    text = str(value).strip().replace("Z", "").replace("z", "")
+    for fmt in _WHEN_FORMATS:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    try:  # numeric epoch, as LANL ships it
+        return datetime.utcfromtimestamp(float(text))
+    except (TypeError, ValueError, OSError, OverflowError):
+        return None
+
+
 @app.get("/events")
 def get_events(
     offset: int = 0,
@@ -945,6 +993,8 @@ def get_events(
     user: str | None = None,
     event_id: str | None = None,
     source: str | None = None,
+    time_from: str | None = None,
+    time_to: str | None = None,
 ):
     """Raw event log, paginated and filterable — the SIEM log view.
 
@@ -959,7 +1009,17 @@ def get_events(
 
     rows = json.loads(path.read_text(encoding="utf-8"))
 
+    lo, hi = _parse_when(time_from), _parse_when(time_to)
+
     def keep(row: dict[str, Any]) -> bool:
+        if lo or hi:
+            # A row whose timestamp cannot be read is excluded from a time
+            # window rather than silently included: "logs between 01:00 and
+            # 02:00" that returns records of unknown time is a wrong answer
+            # presented as a right one.
+            when = _parse_when(row.get("timestamp"))
+            if when is None or (lo and when < lo) or (hi and when > hi):
+                return False
         if severity and str(row.get("severity", "")).upper() != severity.upper():
             return False
         if host and host.lower() not in str(row.get("host", "")).lower():
@@ -979,7 +1039,11 @@ def get_events(
                 return False
         return True
 
-    filtered = [r for r in rows if keep(r)] if (q or severity or host or user or event_id) else rows
+    # `source` and the time window were missing from this list, so selecting a
+    # file in the source picker — or asking for a time range — filtered
+    # nothing and the header went on reporting the whole corpus.
+    any_filter = any((q, severity, host, user, event_id, source, time_from, time_to))
+    filtered = [r for r in rows if keep(r)] if any_filter else rows
     window = filtered[offset: offset + max(1, min(limit, 5000))]
     return {
         "events": window,
@@ -1195,7 +1259,24 @@ def _mount_dashboard() -> None:
     from fastapi.responses import FileResponse as _FileResponse
     from fastapi.staticfiles import StaticFiles as _StaticFiles
 
-    app.mount("/assets", _StaticFiles(directory=_UI_DIST / "assets"), name="assets")
+    # Cache policy, split by whether the filename identifies the content.
+    #
+    # index.html went out with an ETag and no Cache-Control at all, so browsers
+    # fell back to heuristic caching and were free to reuse it without asking.
+    # A stale index.html points at the previous bundle hash, so the page keeps
+    # loading yesterday's JavaScript no matter how many times it is reloaded —
+    # which looks exactly like a server that has stopped updating.
+    #
+    # Hashed assets are the opposite case: the name changes whenever the bytes
+    # do, so they can be cached hard and forever.
+    class _ImmutableAssets(_StaticFiles):
+        def file_response(self, *args, **kwargs):  # type: ignore[override]
+            resp = super().file_response(*args, **kwargs)
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return resp
+
+    app.mount("/assets", _ImmutableAssets(directory=_UI_DIST / "assets"),
+              name="assets")
 
     # Registered for every method, not just GET.
     #
@@ -1225,7 +1306,11 @@ def _mount_dashboard() -> None:
         candidate = (_UI_DIST / full_path).resolve()
         if full_path and candidate.is_file() and _UI_DIST in candidate.parents:
             return _FileResponse(candidate)
-        return _FileResponse(_UI_DIST / "index.html")
+        # must-revalidate, not no-store: the ETag still saves the transfer when
+        # nothing has changed, but the browser has to ask first.
+        return _FileResponse(
+            _UI_DIST / "index.html",
+            headers={"Cache-Control": "no-cache, must-revalidate"})
 
     print(f"[+] dashboard served from {_UI_DIST} — open http://<host>:8000/",
           flush=True)
@@ -1254,26 +1339,56 @@ def autopilot_stop():
 
 
 @app.get("/stream")
-def stream():
+async def stream(request: Request):
     """Server-sent events: every stage, routing decision and finished case.
 
     The dashboard subscribes once and updates as work lands, rather than
     polling for a bundle that only changes at the end of a run.
+
+    WHY THIS IS ASYNC
+    -----------------
+    It used to be a plain `def` returning a blocking generator. Starlette runs
+    those in the AnyIO worker pool, which holds exactly forty threads — and
+    this generator never returns, because it sits in `queue.get()` waiting for
+    the next event. So every open dashboard tab permanently consumed one
+    worker, and after forty of them (a few reloads, a couple of browsers, a
+    screenshot script) the pool was empty and *every other synchronous
+    endpoint in the application queued behind connections that would never
+    finish. /health took seven seconds, /analysis timed out, and the page
+    simply never loaded — while the process looked healthy and the logs showed
+    nothing but 200s.
+
+    An async generator holds no worker thread: it yields control back to the
+    event loop between events, so ten thousand idle subscribers cost ten
+    thousand cheap coroutines instead of forty threads and a deadlock.
     """
     ap = _autopilot.get_autopilot(engine_factory=_engine_factory)
     sub = ap.bus.subscribe()
 
-    def gen():
-        # Replay recent history so a page opened mid-run is not blank.
-        for event in ap.bus.history[-30:]:
-            yield f"data: {json.dumps(event)}\n\n"
+    async def gen():
         try:
+            # Replay recent history so a page opened mid-run is not blank.
+            for event in list(ap.bus.history)[-30:]:
+                yield f"data: {json.dumps(event)}\n\n"
+
+            idle = 0.0
             while True:
+                # A browser that navigated away is not owed any more events,
+                # and without this check a closed tab's subscription lived
+                # until the next write failed.
+                if await request.is_disconnected():
+                    break
                 try:
-                    event = sub.q.get(timeout=15)
+                    event = sub.q.get_nowait()
+                    idle = 0.0
                     yield f"data: {json.dumps(event)}\n\n"
-                except Exception:
-                    # Keep the connection alive through quiet periods.
+                    continue
+                except queue.Empty:
+                    pass
+                await asyncio.sleep(0.25)
+                idle += 0.25
+                if idle >= 15:
+                    idle = 0.0
                     yield ": keepalive\n\n"
         finally:
             ap.bus.unsubscribe(sub)
@@ -1411,10 +1526,13 @@ def enrich_email(req: EnrichRequest):
     return _enrich("email", evidence, keys)
 
 
-@app.post("/enrich/event")
-def enrich_event(req: EnrichRequest):
-    """Explain one log line: what it means, and its benign baseline."""
-    event = req.payload or {}
+def _explain_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Explain one log line: what it means, and its benign baseline.
+
+    Lifted out of the endpoint so the manual-review queue reaches the model by
+    exactly the same grounded path a live click does — a second implementation
+    would drift, and the two would disagree about the same log.
+    """
     # Accept both the normalised row the dashboard holds and a raw
     # Windows/Sysmon record, so the endpoint works on whatever the caller has.
     def pick(*names):
@@ -1445,6 +1563,57 @@ def enrich_event(req: EnrichRequest):
         or ["windows event id meaning and benign baseline"],
     }
     return _enrich("logs", evidence, keys)
+
+
+@app.post("/enrich/event")
+def enrich_event(req: EnrichRequest):
+    """Explain one log line, synchronously, for a click that is waiting."""
+    return _explain_event(req.payload or {})
+
+
+# ── manual review ───────────────────────────────────────────────────────────
+# Logs an analyst chose to send to the AI themselves. Kept, unlike the chat
+# panel this replaces, so the evaluation stays attached to the log.
+
+class ManualReviewRequest(BaseModel):
+    payload: dict[str, Any]
+    note: str = ""
+
+
+_manual_review = _ManualReviewQueue(_explain_event)
+_manual_review.start()
+
+
+@app.post("/manual-review")
+def submit_manual_review(req: ManualReviewRequest):
+    """Queue one log for AI evaluation and return its place in the queue."""
+    if not req.payload:
+        return {"error": "no log supplied"}
+    out = _manual_review.submit(req.payload, req.note)
+    return {
+        "ok": True,
+        "id": out["review"]["id"],
+        "status": out["review"]["status"],
+        "already_present": out["already_present"],
+        "queued_ahead": sum(1 for r in _manual_review.list()["reviews"]
+                            if r["status"] == "queued") - 1,
+    }
+
+
+@app.get("/manual-review")
+def get_manual_reviews():
+    """Everything sent by hand, newest first, with results where they exist."""
+    return _manual_review.list()
+
+
+@app.delete("/manual-review/{review_id}")
+def delete_manual_review(review_id: str):
+    return {"ok": _manual_review.remove(review_id)}
+
+
+@app.post("/manual-review/clear")
+def clear_manual_reviews():
+    return {"ok": True, "cleared": _manual_review.clear()}
 
 
 @app.post("/enrich/graph")

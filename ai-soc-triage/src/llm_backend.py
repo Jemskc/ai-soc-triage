@@ -11,6 +11,7 @@ import gc
 import json
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -105,6 +106,14 @@ class LocalHFBackend(LLMBackend):
         self._model = None
         self._tokenizer = None
         self._loaded = False
+        # One card, several callers. The investigation loop, the manual-review
+        # worker and a synchronous click from the dashboard can all reach
+        # generate() at once, and a 14B model at 27.5GB of a 31.7GB card has no
+        # room for two concurrent KV caches — the second call does not run
+        # slowly, it raises CUDA out of memory and takes the request with it.
+        # Serialising here rather than at each call site means a new caller
+        # cannot forget.
+        self._gpu = threading.RLock()
 
     def _model_family(self) -> str:
         name = self._model_name.lower()
@@ -226,7 +235,7 @@ class LocalHFBackend(LLMBackend):
             "pad_token_id": self._tokenizer.eos_token_id,
         }
 
-        with torch.inference_mode():
+        with self._gpu, torch.inference_mode():
             output_ids = self._model.generate(**inputs, **gen_kwargs)
 
         new_tokens = output_ids[0][inputs["input_ids"].shape[1]:]
@@ -272,7 +281,7 @@ class LocalHFBackend(LLMBackend):
                 enc = tok(texts, return_tensors="pt", padding=True).to(
                     self._model.device)
 
-                with torch.inference_mode():
+                with self._gpu, torch.inference_mode():
                     ids = self._model.generate(
                         **enc,
                         max_new_tokens=min(max_tokens, self._max_new_tokens),
@@ -323,7 +332,7 @@ class LocalHFBackend(LLMBackend):
         }
 
         def _run() -> None:
-            with torch.inference_mode():
+            with self._gpu, torch.inference_mode():
                 self._model.generate(**gen_kwargs)
 
         thread = Thread(target=_run, daemon=True)
