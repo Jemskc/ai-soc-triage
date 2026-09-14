@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FileStack, Check } from 'lucide-react';
+import { FileStack, Check, ChevronDown } from 'lucide-react';
 import { api } from '../utils/api';
 
 /**
@@ -13,6 +13,17 @@ import { api } from '../utils/api';
 export default function SourcePicker({ selected, onSelect }) {
   const [sources, setSources] = useState([]);
   const [total, setTotal] = useState(0);
+
+  // A permanent 110px card at the top of the page, for a question that is
+  // asked once per import. It opens on click and stays where it is put.
+  const [open, setOpen] = useState(() => {
+    try { return window.localStorage.getItem('soc:sources:open') === '1'; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem('soc:sources:open', open ? '1' : '0'); }
+    catch { /* private window */ }
+  }, [open]);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,18 +44,31 @@ export default function SourcePicker({ selected, onSelect }) {
 
   return (
     <div className="bg-card border border-border rounded-lg overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 bg-panel border-b border-border">
+      <button
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        className={`w-full flex items-center gap-2 px-3 py-2 bg-panel text-left hover:bg-hover transition-colors ${
+          open ? 'border-b border-border' : ''}`}
+      >
+        <ChevronDown size={12}
+          className={`text-muted ${open ? 'transition-transform' : '-rotate-90 transition-transform'}`} />
         <FileStack size={13} className="text-blue-400" />
         <span className="text-muted text-[10px] uppercase tracking-wider">
           Imported sources
         </span>
         <span className="text-primary text-[10px]">{sources.length}</span>
+        {/* Collapsed, the header still has to answer what you are looking at. */}
+        {!open && (
+          <span className="text-primary text-[10px] font-mono truncate max-w-[280px]">
+            {selected || 'All sources'}
+          </span>
+        )}
         <span className="ml-auto text-muted text-[10px]">
           {total.toLocaleString()} events
         </span>
-      </div>
+      </button>
 
-      <div className="divide-y divide-border max-h-44 overflow-y-auto">
+      <div className={`divide-y divide-border max-h-44 overflow-y-auto ${open ? '' : 'hidden'}`}>
         <button
           onClick={() => onSelect('')}
           className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-hover transition-colors ${

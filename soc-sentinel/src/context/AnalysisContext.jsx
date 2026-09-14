@@ -19,6 +19,11 @@ const AnalysisContext = createContext(null);
 // severity mixes and top-N tables the other tabs draw.
 const EVENT_SAMPLE = 5000;
 
+// How often the dashboard re-reads the analysis bundle. Ingestion, correlation
+// and verdicts all happen server-side and continuously; without this the UI is
+// a photograph.
+const REFRESH_INTERVAL_MS = 4000;
+
 const POLL_INTERVAL_MS = 1200;
 
 export function AnalysisProvider({ children, fallbackLogs = null }) {
@@ -69,6 +74,31 @@ export function AnalysisProvider({ children, fallbackLogs = null }) {
     };
   }, [stopPolling]);
 
+  // Keep the bundle current.
+  //
+  // api.analysis() was called exactly twice: once on mount, and inside the
+  // polling loop that only runs if someone clicks "start analysis". So every
+  // tab rendered whatever existed at page load and never asked again —
+  // importing a corpus into an open dashboard changed nothing on screen, and
+  // after a reset the whole UI sat on a snapshot of zero while the server held
+  // 20,200 events and 63 incidents. A live console has to keep asking.
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const fresh = await api.analysis();
+        if (cancelled || !fresh || !fresh.incidents) return;
+        setBundle(fresh);
+        setEventTotal(fresh.event_total ?? 0);
+        setStatus(prev => (prev === 'running' ? prev : 'ready'));
+      } catch {
+        // A transient failure must not blank a working dashboard.
+      }
+    };
+    const timer = setInterval(tick, REFRESH_INTERVAL_MS);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, []);
+
   const startAnalysis = useCallback(async (payload = {}) => {
     setError(null);
     stopPolling();
@@ -112,11 +142,22 @@ export function AnalysisProvider({ children, fallbackLogs = null }) {
   const [allEvents, setAllEvents] = useState(null);
   const [eventTotal, setEventTotal] = useState(0);
 
+  // Fetched once, not once per status.
+  //
+  // `status` moves idle -> loading -> ready, and this effect was keyed on it,
+  // so it ran on both non-loading values and pulled the same 3.5MB of events
+  // twice — 7MB of a 12.8MB page load, the second copy discarded on arrival.
+  // Counts stay current through the 4s bundle poll; the sample itself only
+  // backs the aggregate tables and does not need re-downloading.
+  const sampleFetched = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
     // Deliberately not gated on analysis status: raw logs are deterministic
     // and should be readable whether or not the AI has run.
     if (status === 'loading') return undefined;
+    if (sampleFetched.current) return undefined;
+    sampleFetched.current = true;
     (async () => {
       try {
         // Only the first page, and only to learn the total and give the other
@@ -135,6 +176,8 @@ export function AnalysisProvider({ children, fallbackLogs = null }) {
         setAllEvents(first.events || []);
       } catch {
         // Fall back to the bundle preview; the views still work, just shorter.
+        // Allow a retry: a failed fetch must not be remembered as done.
+        sampleFetched.current = false;
       }
     })();
     return () => { cancelled = true; };

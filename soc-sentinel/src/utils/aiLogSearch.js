@@ -85,7 +85,15 @@ const EVENT_PATTERNS = [
   { terms: ['lateral movement','lateral'],                                                                                                          field: 'rule',    value: 'lateral',    operator: 'contains', label: 'lateral movement' },
   { terms: ['dns tunnel','dns query','dns request'],                                                                                                field: 'message', value: 'dns',        operator: 'contains', label: 'DNS' },
   { terms: ['outbound connection','outbound','egress'],                                                                                             field: 'message', value: 'outbound',   operator: 'contains', label: 'outbound connection' },
-  { terms: ['login','logon','sign in','sign-in','authenticate','authentication','logged in'],                                                       field: 'message', value: 'login',      operator: 'contains', label: 'login' },
+  // Listed before the generic login pattern below. "NTLM authentication" used
+  // to match that pattern and come out as message contains "login" — the one
+  // word that made the question specific was discarded, and the search
+  // returned every successful logon in the estate.
+  { terms: ['kerberos'],                                                                                                                            field: 'message', value: 'kerberos',   operator: 'contains', label: 'Kerberos' },
+  { terms: ['ntlm'],                                                                                                                                field: 'message', value: 'ntlm',       operator: 'contains', label: 'NTLM' },
+  { terms: ['negotiate'],                                                                                                                           field: 'message', value: 'negotiate',  operator: 'contains', label: 'Negotiate' },
+  { terms: ['logoff','log off','logout','sign out'],                                                                                                field: 'message', value: 'logoff',     operator: 'contains', label: 'logoff' },
+  { terms: ['login','logon','sign in','sign-in','authenticate','authentication','logged in'],                                                       field: 'message', value: 'logon',      operator: 'contains', label: 'logon' },
 ];
 
 // ── Structured query parser ───────────────────────────────────────────────────
@@ -118,11 +126,16 @@ function parseStructured(text) {
     } else {
       let finalValue = value;
       let operator   = 'equals';
+      let finalField = field;
       if (field === 'severity') finalValue = value.toUpperCase();
-      if (field === 'message' || field === 'rule') operator = 'contains';
+      // "event type = 4624" resolves to the rule field, where it became a
+      // substring search for "4624" inside a rule name. A number there is an
+      // event id and should be matched as one.
+      if (field === 'rule' && /^\d{3,5}$/.test(value)) finalField = 'eventId';
+      else if (field === 'message' || field === 'rule') operator = 'contains';
       // Avoid duplicate filters for same field + value
-      if (!filters.some(f => f.field === field && f.value === finalValue)) {
-        filters.push({ field, value: finalValue, operator });
+      if (!filters.some(f => f.field === finalField && f.value === finalValue)) {
+        filters.push({ field: finalField, value: finalValue, operator });
       }
     }
   }
@@ -151,16 +164,24 @@ function parseNLP(lower, logs, structuredFields) {
   // Usernames
   if (!structuredFields.has('user')) {
     const userRxs = [
-      /\buser[:\s]+([a-zA-Z0-9._@-]+)/,
-      /\busername[:\s]+([a-zA-Z0-9._@-]+)/,
-      /\bdid\s+([a-zA-Z0-9._@-]{3,})\b/,
+      /\buser[:\s]+([a-zA-Z0-9._@$-]+)/,
+      /\busername[:\s]+([a-zA-Z0-9._@$-]+)/,
+      /\baccount[:\s]+([a-zA-Z0-9._@$-]+)/,
+      /\bdid\s+([a-zA-Z0-9._@$-]{3,})\b/,
     ];
     let found = false;
     for (const rx of userRxs) {
       const m = lower.match(rx);
       if (!m) continue;
       const cand = m[1].replace(/[?!.,;:]$/, '');
-      if (knownUsers.has(cand)) {
+      // A named account is taken at its word.
+      //
+      // This used to require the name to appear in `logs` — the 500 rows the
+      // browser happened to be holding. Asking for "user U160" while looking
+      // at page one of a 20,200-row corpus therefore produced no filter at
+      // all, and the search silently returned everything. The server has the
+      // corpus; it can decide whether the account exists.
+      if (knownUsers.has(cand) || /^[a-z]\d+\$?$/.test(cand) || cand.length >= 3) {
         filters.push({ field: 'user', value: cand, operator: 'equals' });
         found = true; break;
       }
@@ -168,9 +189,15 @@ function parseNLP(lower, logs, structuredFields) {
     if (!found) {
       for (const tok of lower.replace(/[^a-z0-9._@-]/g, ' ').split(/\s+/)) {
         if (tok.length >= 3 && !FILLER.has(tok) && knownUsers.has(tok)) {
-          filters.push({ field: 'user', value: tok, operator: 'equals' }); break;
+          filters.push({ field: 'user', value: tok, operator: 'equals' });
+          found = true; break;
         }
       }
+    }
+    // U160, U3635 — accounts in this corpus. Machine accounts end in $.
+    if (!found) {
+      const bare = lower.match(/\bu\d{1,6}\$?\b/);
+      if (bare) filters.push({ field: 'user', value: bare[0], operator: 'equals' });
     }
   }
 
@@ -181,13 +208,16 @@ function parseNLP(lower, logs, structuredFields) {
       /\bmachine[:\s]+([a-zA-Z0-9._-]+)/,
       /\bcomputer[:\s]+([a-zA-Z0-9._-]+)/,
       /\bon\s+((?:WS|PC|DC|SRV|SERVER|HOST)-[a-zA-Z0-9_-]+)/i,
+      // C1691, C12682 — how this corpus names machines. The patterns above
+      // only knew WS-/PC-/DC- style names from the sample data.
+      /\b(?:host|on|from|to)\s+(c\d{1,6})\b/,
     ];
     let found = false;
     for (const rx of hostRxs) {
       const m = lower.match(rx);
       if (!m) continue;
       const cand = m[1].replace(/[?!.,;:]$/, '').toLowerCase();
-      if (knownHosts.has(cand)) {
+      if (knownHosts.has(cand) || /^c\d{1,6}$/.test(cand) || cand.length >= 2) {
         filters.push({ field: 'host', value: cand, operator: 'equals' });
         found = true; break;
       }
@@ -196,10 +226,29 @@ function parseNLP(lower, logs, structuredFields) {
       for (const tok of lower.split(/\s+/)) {
         const clean = tok.replace(/[^a-z0-9._-]/g, '');
         if (clean.length >= 2 && knownHosts.has(clean)) {
-          filters.push({ field: 'host', value: clean, operator: 'equals' }); break;
+          filters.push({ field: 'host', value: clean, operator: 'equals' });
+          found = true; break;
         }
       }
     }
+    // A bare "C1588" in the query is a machine name in this corpus. Without
+    // this, "show me everything from C1588" produced no filter whatsoever.
+    if (!found) {
+      const bare = lower.match(/\bc\d{2,6}\b/);
+      if (bare) filters.push({ field: 'host', value: bare[0], operator: 'equals' });
+    }
+  }
+
+  // Windows event ids — "event 4624", "event id 4688", or a bare 4-digit code
+  // that is not part of a date or a time.
+  if (!structuredFields.has('rule')) {
+    const idm = lower.match(/\bevent(?:\s*id)?[:\s]+(\d{3,5})\b/)
+      || (/\b\d{4}\b/.test(lower.replace(/\d{4}[-/]\d{1,2}[-/]\d{1,2}/g, '')
+                              .replace(/\d{1,2}:\d{2}(:\d{2})?/g, ''))
+          ? lower.replace(/\d{4}[-/]\d{1,2}[-/]\d{1,2}/g, '')
+                 .replace(/\d{1,2}:\d{2}(:\d{2})?/g, '').match(/\b(\d{4})\b/)
+          : null);
+    if (idm) filters.push({ field: 'eventId', value: idm[1], operator: 'equals' });
   }
 
   // Severity
@@ -241,6 +290,119 @@ function parseNLP(lower, logs, structuredFields) {
   return { filters, timeRange };
 }
 
+
+// ── Absolute time windows ─────────────────────────────────────────────────────
+// Everything above resolves time relative to *now*. That is useless against a
+// corpus recorded in 2015: "last 24h" over LANL authentication data matches
+// nothing at all, and asking for a window between two clock times had no
+// parse path whatsoever — the phrase fell through to the keyword matcher and
+// the search returned the whole estate.
+
+const MONTHS = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
+// 2015-01-01, 2015/01/01, 01-01-2015, "1 jan 2015", "jan 1 2015"
+const DATE_RE = [
+  /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/,
+  /(\d{1,2})[-/](\d{1,2})[-/](\d{4})/,
+];
+const TIME_RE = /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?/;
+
+function pad(n) { return String(n).padStart(2, '0'); }
+
+/** One date and/or clock time out of a fragment, as "YYYY-MM-DD HH:MM:SS". */
+function parseMoment(fragment, fallbackDate, endOfRange) {
+  if (!fragment) return null;
+  const text = fragment.trim();
+  let y = null, mo = null, d = null;
+
+  let m = text.match(DATE_RE[0]);
+  if (m) { [, y, mo, d] = m.map(Number); }
+  if (!y) {
+    m = text.match(DATE_RE[1]);
+    if (m) { d = +m[1]; mo = +m[2]; y = +m[3]; }
+  }
+  if (!y) {
+    // "3 jan 2015" / "jan 3 2015" / "jan 3"
+    const name = text.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/);
+    if (name) {
+      mo = MONTHS[name[1]];
+      const dayBefore = text.match(new RegExp('(\\d{1,2})\\s*' + name[1]));
+      const dayAfter = text.match(new RegExp(name[1] + '[a-z]*\\s*(\\d{1,2})'));
+      d = Number((dayBefore || dayAfter || [])[1]) || 1;
+      const year = text.match(/\b(19|20)\d{2}\b/);
+      y = year ? Number(year[0]) : null;
+    }
+  }
+
+  const t = text.match(TIME_RE);
+  let hh = null, mi = 0, ss = null;
+  if (t) {
+    hh = Number(t[1]); mi = Number(t[2]); ss = t[3] === undefined ? null : Number(t[3]);
+    if (t[4] === 'pm' && hh < 12) hh += 12;
+    if (t[4] === 'am' && hh === 12) hh = 0;
+  }
+
+  if (!y && fallbackDate) { [y, mo, d] = fallbackDate; }
+  if (!y) return null;
+
+  // "to 3pm" means the end of 15:00:59, not 15:00:00 — an inclusive upper
+  // bound is what a person means by "between 2 and 3".
+  if (hh === null) { hh = endOfRange ? 23 : 0; mi = endOfRange ? 59 : 0; ss = endOfRange ? 59 : 0; }
+  else if (ss === null) { ss = endOfRange ? 59 : 0; }
+
+  return { iso: `${y}-${pad(mo || 1)}-${pad(d || 1)} ${pad(hh)}:${pad(mi)}:${pad(ss)}`,
+           date: [y, mo || 1, d || 1] };
+}
+
+/**
+ * An explicit window out of the query, if there is one.
+ * Handles "from X to Y", "between X and Y", "after X", "before X", "on X".
+ */
+export function parseAbsoluteWindow(lower) {
+  const range = lower.match(
+    /(?:from|between)\s+(.+?)\s+(?:to|until|till|and|-|–)\s+(.+?)(?:$|[,.;])/);
+  if (range) {
+    // The end fragment often omits the date ("from 2015-01-01 01:00 to 03:00"),
+    // so it inherits the start's day rather than failing to parse.
+    const a = parseMoment(range[1], null, false);
+    const b = parseMoment(range[2], a?.date, true);
+    if (a || b) {
+      return { from: a?.iso || null, to: b?.iso || null,
+               label: `${a?.iso || '…'} → ${b?.iso || '…'}` };
+    }
+  }
+
+  const after = lower.match(/(?:after|since|newer than)\s+(.+?)(?:$|[,.;])/);
+  if (after) {
+    const a = parseMoment(after[1], null, false);
+    if (a) return { from: a.iso, to: null, label: `after ${a.iso}` };
+  }
+
+  const before = lower.match(/(?:before|until|older than)\s+(.+?)(?:$|[,.;])/);
+  if (before) {
+    const b = parseMoment(before[1], null, true);
+    if (b) return { from: null, to: b.iso, label: `before ${b.iso}` };
+  }
+
+  const on = lower.match(/\bon\s+(.+?)(?:$|[,.;])/);
+  if (on) {
+    const a = parseMoment(on[1], null, false);
+    const b = parseMoment(on[1], null, true);
+    if (a && b) return { from: a.iso, to: b.iso, label: `on ${a.iso.slice(0, 10)}` };
+  }
+
+  // A bare date with no preposition: "2015-01-01 logins".
+  const bare = parseMoment(lower, null, false);
+  if (bare && /\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(lower)) {
+    const end = parseMoment(lower, null, true);
+    return { from: bare.iso, to: end.iso, label: `on ${bare.iso.slice(0, 10)}` };
+  }
+  return null;
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 export function aiLogSearch(queryText, logs) {
   if (!queryText?.trim()) return { filters: [], translatedQuery: '', suggestedTimeRange: null };
@@ -260,6 +422,9 @@ export function aiLogSearch(queryText, logs) {
     ...nlp.filters.filter(f => !structuredFields.has(f.field)),
   ];
   const suggestedTimeRange = structured.timeRange || nlp.timeRange || null;
+  // An explicit window wins over a relative one: someone who names two clock
+  // times has said exactly what they want.
+  const absoluteWindow = parseAbsoluteWindow(lower);
 
   // Step 4: build translated query string for display
   const translatedQuery = filters
@@ -271,5 +436,5 @@ export function aiLogSearch(queryText, logs) {
     })
     .join(' ');
 
-  return { filters, translatedQuery, suggestedTimeRange };
+  return { filters, translatedQuery, suggestedTimeRange, absoluteWindow };
 }

@@ -6,8 +6,40 @@ import { parseQuery } from '../utils/queryParser';
 import { aiLogSearch } from '../utils/aiLogSearch';
 import { exportCSV } from '../utils/logExporter';
 import { api } from '../utils/api';
+import ResizablePane from '../components/ResizablePane';
 
 const PAGE_SIZE = 50;
+
+// The parsed query in words, for the analyst to check against what they meant.
+const FIELD_WORDS = {
+  host: 'host', user: 'account', eventId: 'event id',
+  severity: 'severity', sourceIP: 'source IP', message: 'text', rule: 'event type',
+};
+
+function readFilters(result) {
+  const out = (result?.filters || []).map(f => {
+    const word = FIELD_WORDS[f.field] || f.field;
+    if (f.operator === 'in') return `${word} is one of ${f.value.split('|').join(', ')}`;
+    if (f.operator === 'contains') return `${word} contains "${f.value}"`;
+    return `${word} = ${f.value}`;
+  });
+  const w = result?.absoluteWindow;
+  if (w) out.push(`${w.from || 'any time'} → ${w.to || 'now'}`);
+  return out;
+}
+
+// Timestamps are rendered in UTC, deliberately.
+//
+// The corpus is stamped in UTC and the time filter matches on those strings,
+// so rendering with toLocaleString() showed "12/31/2014, 7:00:02 PM" for a
+// record the analyst had just asked for by typing "01:00" — the row was
+// correct and looked like a bug. In a SOC the wall clock of whoever opened the
+// browser is not the timeline anyone reasons in.
+function formatWhen(value) {
+  const t = Date.parse(value);
+  if (Number.isNaN(t)) return String(value ?? '');
+  return new Date(t).toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+}
 
 const TIME_RANGES = [
   { label: 'Last 15m', ms: 15 * 60_000 },
@@ -62,6 +94,7 @@ function syntaxHighlightJson(obj) {
 // ─── ExpandedRow ─────────────────────────────────────────────────────────────
 function ExpandedRow({ log, onPivot, onSendToAI, onFindRelated, onInvestigate }) {
   const [copied, setCopied] = useState(false);
+  const [sent, setSent] = useState(null);   // null | 'sending' | 'queued' | 'already' | 'error'
   const [explain, setExplain] = useState(null);
   const [explainState, setExplainState] = useState('idle'); // idle | loading | error
   const [explainError, setExplainError] = useState('');
@@ -95,8 +128,37 @@ function ExpandedRow({ log, onPivot, onSendToAI, onFindRelated, onInvestigate })
     <div className="grid grid-cols-2 gap-5">
       {/* Left: all fields */}
       <div>
-        <p className="text-muted text-[10px] uppercase tracking-wider mb-2">All Fields</p>
-        <div className="space-y-1 max-h-52 overflow-y-auto pr-1">
+        {/* The log line as it arrived, before any of the platform's
+            interpretation of it. An analyst checking the AI's work needs the
+            original record, and it was previously reachable only by reading
+            the JSON blob on the right. */}
+        {(log._raw?.raw_message || log.message) && (
+          <div className="mb-3">
+            <p className="text-muted text-[10px] uppercase tracking-wider mb-1">Raw log line</p>
+            <ResizablePane storageKey="logs-rawline" defaultHeight={96} minHeight={40}
+              className="bg-panel border border-border rounded p-2">
+              <pre className="text-[11px] font-mono text-primary whitespace-pre-wrap break-all">
+{log._raw?.raw_message || log.message}
+              </pre>
+            </ResizablePane>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 mb-2">
+          <p className="text-muted text-[10px] uppercase tracking-wider">All Fields</p>
+          <span className="ml-auto flex items-center gap-1">
+            <span className="text-muted text-[9px]">id</span>
+            <button
+              onClick={() => navigator.clipboard?.writeText(log.uid || log.id).catch(() => {})}
+              title="Copy this log's stable id"
+              className="font-mono text-[10px] text-blue-400 hover:text-blue-300 underline decoration-dotted"
+            >
+              {log.uid || log.id}
+            </button>
+          </span>
+        </div>
+        <ResizablePane storageKey="logs-fields" defaultHeight={240} className="pr-1">
+          <div className="space-y-1">
           {fields.map(([key, val]) => (
             <div key={key} className="flex items-start gap-2 text-[10px]">
               <span className="text-blue-400 font-mono shrink-0 w-24 truncate">{key}</span>
@@ -121,11 +183,27 @@ function ExpandedRow({ log, onPivot, onSendToAI, onFindRelated, onInvestigate })
               )}
             </div>
           ))}
-        </div>
+          </div>
+        </ResizablePane>
         <div className="flex flex-wrap gap-2 mt-3">
-          <button onClick={() => onSendToAI && onSendToAI(log)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white transition-colors">
-            <Send size={10} /> Send to AI Panel
+          {/* Sending used to mean "put it in the chat panel", where the
+              answer scrolled away and was attached to nothing. It now goes to
+              a queue that keeps the evaluation next to the log. */}
+          <button
+            onClick={() => {
+              setSent('sending');
+              api.submitManualReview(log)
+                .then(r => setSent(r.already_present ? 'already' : 'queued'))
+                .catch(() => setSent('error'));
+              if (onSendToAI) onSendToAI(log);
+            }}
+            disabled={sent === 'sending'}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white transition-colors disabled:opacity-50">
+            <Send size={10} />
+            {sent === 'sending' ? 'Sending…'
+              : sent === 'queued' ? 'Queued for AI review'
+              : sent === 'already' ? 'Already in review'
+              : 'Send to AI review'}
           </button>
           <button onClick={onFindRelated}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-hover border border-border hover:border-blue-500 rounded text-xs text-primary transition-colors">
@@ -142,6 +220,17 @@ function ExpandedRow({ log, onPivot, onSendToAI, onFindRelated, onInvestigate })
             {explainState === 'loading' ? 'Explaining…' : 'Explain this event'}
           </button>
         </div>
+
+        {sent && sent !== 'sending' && (
+          <p className={`text-[10px] mt-2 ${sent === 'error' ? 'text-amber-400' : 'text-emerald-400'}`}>
+            {sent === 'error'
+              ? 'Could not reach the review queue — the API may be restarting.'
+              : sent === 'already'
+                ? 'This log is already in the review queue — open "Sent by Analyst" to read it.'
+                : 'Queued. It waits behind the investigation loop (one GPU), then appears '
+                  + 'under "Sent by Analyst" with the evaluation attached.'}
+          </p>
+        )}
 
         {(explain || explainState !== 'idle') && (
           <div className="mt-3 bg-panel border border-border rounded p-3 space-y-2">
@@ -190,10 +279,13 @@ function ExpandedRow({ log, onPivot, onSendToAI, onFindRelated, onInvestigate })
             <Copy size={9} /> {copied ? 'Copied!' : 'Copy JSON'}
           </button>
         </div>
-        <pre
-          className="text-[10px] bg-panel border border-border rounded p-3 overflow-auto max-h-52 font-mono leading-relaxed"
-          dangerouslySetInnerHTML={{ __html: syntaxHighlightJson(logForJson) }}
-        />
+        <ResizablePane storageKey="logs-rawjson" defaultHeight={240}
+          className="bg-panel border border-border rounded p-3">
+          <pre
+            className="text-[10px] font-mono leading-relaxed"
+            dangerouslySetInnerHTML={{ __html: syntaxHighlightJson(logForJson) }}
+          />
+        </ResizablePane>
       </div>
     </div>
   );
@@ -226,6 +318,28 @@ export default function LogsExplorer({
   const [page,         setPage]         = useState(1);
   const [expandedId,   setExpandedId]   = useState(null);
   const [showHistory,  setShowHistory]  = useState(false);
+
+  // The search zone is ~300px of a ~700px window. Left open it leaves three
+  // rows of log visible, and an expanded row with nowhere to go. It collapses
+  // to a single line, and the choice is remembered.
+  const [searchOpen, setSearchOpen] = useState(() => {
+    try { return window.localStorage.getItem('soc:logs:searchOpen') !== '0'; }
+    catch { return true; }
+  });
+  const [showChips, setShowChips] = useState(false);
+
+  useEffect(() => {
+    try { window.localStorage.setItem('soc:logs:searchOpen', searchOpen ? '1' : '0'); }
+    catch { /* private window — the preference just won't persist */ }
+  }, [searchOpen]);
+
+  // The detail covers the table, so Escape has to bring the table back.
+  useEffect(() => {
+    if (expandedId == null) return undefined;
+    const onKey = e => { if (e.key === 'Escape') setExpandedId(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expandedId]);
   const [searchHistory, setSearchHistory] = useState(() => {
     try { return JSON.parse(sessionStorage.getItem('log-search-history') || '[]'); } catch { return []; }
   });
@@ -247,6 +361,12 @@ export default function LogsExplorer({
 
   const filtered = useMemo(() => {
     if (!logs?.length) return [];
+    // Server-paged: this page IS the filtered result, and re-filtering it
+    // here would apply the predicates twice — once correctly across the
+    // corpus and once again against a relative clock that a 2015 corpus can
+    // never satisfy, emptying a view the server had just filled.
+    if (srv) return [...logs];
+
     let rows = filterByTime(logs, timeRange.ms);
 
     for (const f of activeFilters) {
@@ -267,10 +387,14 @@ export default function LogsExplorer({
     else if (sortOrder === 'oldest')   out.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     else if (sortOrder === 'severity') out.sort((a, b) => severityOrder(a.severity) - severityOrder(b.severity));
     return out;
-  }, [logs, activeFilters, timeRange, selectedSrcs, selectedSevs, sortOrder]);
+  }, [logs, activeFilters, timeRange, selectedSrcs, selectedSevs, sortOrder, srv]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const pageRows   = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageRows   = srv ? filtered : filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const expandedLog = expandedId == null
+    ? null
+    : pageRows.find(l => l.id === expandedId) || null;
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
   function saveHistory(q) {
@@ -290,6 +414,37 @@ export default function LogsExplorer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuery]);
 
+  // What the parser found, in the shape the server's /events filter takes.
+  //
+  // Without this the AI search only ever filtered the 500 rows already in the
+  // browser, while the header kept reporting the server's unfiltered total —
+  // so "logs between 01:00 and 02:00" showed a handful of matching rows above
+  // the words "20,200 logs", and paging away from the first page left the
+  // filter behind entirely.
+  function toServerFilters(result) {
+    const out = { q: '', severity: '', host: '', user: '', eventId: '',
+                  timeFrom: '', timeTo: '' };
+    const loose = [];
+    for (const f of result.filters || []) {
+      if (f.field === 'severity' && f.operator !== 'in') out.severity = f.value;
+      else if (f.field === 'host') out.host = f.value;
+      else if (f.field === 'user') out.user = f.value;
+      else if (f.field === 'eventId') out.eventId = f.value;
+      // The server's free-text search already covers message, rule, process,
+      // command line, source IP and event id, so anything else goes there
+      // rather than being silently dropped.
+      else loose.push(f.value);
+    }
+    // `q` is one substring match across those fields, so joining several terms
+    // with a space would match nothing. The most specific one is sent.
+    if (loose.length) out.q = loose.sort((a, b) => b.length - a.length)[0];
+    if (result.absoluteWindow) {
+      out.timeFrom = result.absoluteWindow.from || '';
+      out.timeTo = result.absoluteWindow.to || '';
+    }
+    return out;
+  }
+
   function runAI(query) {
     const q = query ?? aiQuery;
     if (!q.trim()) return;
@@ -302,6 +457,7 @@ export default function LogsExplorer({
       const tr = TIME_RANGES.find(t => t.label === result.suggestedTimeRange.label);
       if (tr) setTimeRange(tr);
     }
+    if (srv?.onFilter) srv.onFilter(toServerFilters(result));
     saveHistory(q);
     setPage(1);
     setShowHistory(false);
@@ -350,7 +506,15 @@ export default function LogsExplorer({
   }, [logs, timeRange]);
 
   // ── Empty state ──────────────────────────────────────────────────────────────
-  if (!logs?.length) {
+  //
+  // An empty page is not an empty corpus. Under server paging a search that
+  // matched nothing returns zero rows, and this guard then replaced the entire
+  // view — search box included — with "No log data available. Import a log
+  // file." Searching for an event id that happens not to exist looked like the
+  // import had been lost, and there was no longer a control on screen to undo
+  // the filter. The corpus size is what decides this, not the page.
+  const corpusEmpty = srv ? !srv.totalUnfiltered : !logs?.length;
+  if (corpusEmpty) {
     return (
       <div className="flex-1 flex items-center justify-center animate-fadeIn">
         <div className="text-center space-y-2">
@@ -363,7 +527,7 @@ export default function LogsExplorer({
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-full animate-fadeIn">
+    <div className="flex h-full relative animate-fadeIn">
 
       {/* ── LEFT FILTER PANEL ─────────────────────────────────────────────── */}
       <div className="w-[200px] shrink-0 border-r border-border bg-panel flex flex-col overflow-y-auto">
@@ -431,6 +595,13 @@ export default function LogsExplorer({
           {/* Mode pills + time range */}
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                onClick={() => setSearchOpen(v => !v)}
+                title={searchOpen ? 'Collapse search — more room for logs' : 'Expand search'}
+                aria-expanded={searchOpen}
+                className="p-1 -ml-1 rounded text-muted hover:text-primary hover:bg-hover transition-colors">
+                <ChevronDown size={13} className={searchOpen ? 'transition-transform' : '-rotate-90 transition-transform'} />
+              </button>
               <button onClick={() => setSearchMode('ai')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                   searchMode === 'ai' ? 'bg-blue-600 text-white' : 'border border-border text-muted hover:text-primary'
@@ -443,7 +614,7 @@ export default function LogsExplorer({
                 }`}>
                 Query
               </button>
-              <span className="text-muted text-[10px] hidden sm:block">
+              <span className={`text-muted text-[10px] ${searchOpen ? 'hidden sm:block' : 'hidden'}`}>
                 {searchMode === 'ai'
                   ? 'Ask in plain English — AI will find the logs'
                   : 'Use field:value syntax — source:firewall severity:HIGH'}
@@ -456,16 +627,33 @@ export default function LogsExplorer({
             </select>
           </div>
 
+          {/* Collapsed: the search still has to work, so the query stays
+              reachable on one line rather than disappearing with the panel. */}
+          {!searchOpen && (
+            <div className="flex items-center gap-2">
+              <input
+                value={searchMode === 'ai' ? aiQuery : queryInput}
+                onChange={e => (searchMode === 'ai' ? setAiQuery : setQueryInput)(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { if (searchMode === 'ai') runAI(); else runQuery(); } }}
+                placeholder={searchMode === 'ai' ? 'Ask in plain English…' : 'source:firewall severity:HIGH'}
+                className="flex-1 bg-base border border-border rounded px-3 py-1.5 text-xs text-primary placeholder-muted focus:outline-none focus:border-blue-500 transition-colors font-mono" />
+              <button onClick={() => (searchMode === 'ai' ? runAI() : runQuery())}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white font-medium transition-colors shrink-0">
+                Search
+              </button>
+            </div>
+          )}
+
           {/* AI mode */}
-          {searchMode === 'ai' && (
+          {searchOpen && searchMode === 'ai' && (
             <div className="space-y-2">
               <div className="relative">
                 <textarea
                   value={aiQuery}
                   onChange={e => setAiQuery(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runAI(); }}
-                  rows={3}
-                  placeholder={"Describe what you're looking for...\ne.g. 'Show me all failed logins for user admin in the last hour'\ne.g. 'What did john.doe do on host WS-23 yesterday?'"}
+                  rows={2}
+                  placeholder={"Describe what you're looking for — e.g. 'failed logins for admin in the last hour'"}
                   className="w-full bg-base border border-border rounded px-3 py-2 text-xs text-primary placeholder-muted focus:outline-none focus:border-blue-500 transition-colors resize-none leading-relaxed"
                 />
                 {searchHistory.length > 0 && (
@@ -491,24 +679,34 @@ export default function LogsExplorer({
                   className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white font-medium transition-colors disabled:opacity-40">
                   <Sparkles size={11} /> Search with AI
                 </button>
-                <button onClick={() => { setAiQuery(''); setAiResult(null); setActiveFilters([]); setPage(1); }}
+                <button onClick={() => {
+                    setAiQuery(''); setAiResult(null); setActiveFilters([]); setPage(1);
+                    if (srv?.onFilter) srv.onFilter(
+                      { q: '', severity: '', host: '', user: '', eventId: '', timeFrom: '', timeTo: '' });
+                  }}
                   className="px-3 py-1.5 border border-border rounded text-xs text-muted hover:text-primary transition-colors">
                   Clear
                 </button>
-                <div className="flex flex-wrap gap-1">
-                  {EXAMPLE_CHIPS.map(chip => (
-                    <button key={chip} onClick={() => useChip(chip)}
-                      className="px-2 py-1 bg-hover border border-border rounded-full text-[10px] text-muted hover:text-primary hover:border-blue-500 transition-colors">
-                      {chip}
-                    </button>
-                  ))}
-                </div>
+                <button onClick={() => setShowChips(v => !v)}
+                  className="px-3 py-1.5 border border-border rounded text-xs text-muted hover:text-primary transition-colors">
+                  {showChips ? 'Hide examples' : 'Examples'}
+                </button>
+                {showChips && (
+                  <div className="flex flex-wrap gap-1">
+                    {EXAMPLE_CHIPS.map(chip => (
+                      <button key={chip} onClick={() => useChip(chip)}
+                        className="px-2 py-1 bg-hover border border-border rounded-full text-[10px] text-muted hover:text-primary hover:border-blue-500 transition-colors">
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
 
           {/* Query mode */}
-          {searchMode === 'query' && (
+          {searchOpen && searchMode === 'query' && (
             <div className="space-y-2">
               <div className="flex gap-2">
                 <input value={queryInput} onChange={e => setQueryInput(e.target.value)}
@@ -544,23 +742,74 @@ export default function LogsExplorer({
         </div>
 
         {/* ── AI SEARCH RESULT BADGE ────────────────────────────────────── */}
-        {aiResult && !aiDismissed && (
-          <div className="mx-3 mt-2 shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-500/30 bg-blue-500/5">
-            <Sparkles size={11} className="text-blue-400 shrink-0" />
-            <span className="text-blue-300 text-xs flex-1">
-              Found <span className="font-semibold">{filtered.length.toLocaleString()}</span> logs matching <span className="italic">"{aiQuery}"</span>
-            </span>
-            {aiResult.translatedQuery && (
-              <button onClick={switchToQuery}
-                className="font-mono text-[10px] bg-hover border border-border rounded px-2 py-0.5 text-blue-400 hover:border-blue-500 transition-colors shrink-0">
-                {aiResult.translatedQuery}
-              </button>
-            )}
-            <button onClick={() => setAiDismissed(true)} className="text-muted hover:text-primary transition-colors shrink-0">
-              <X size={11} />
-            </button>
-          </div>
-        )}
+        {aiResult && !aiDismissed && (() => {
+          // The count came from `filtered.length` — the rows in this page, not
+          // the matches in the corpus. Under server paging that is always the
+          // page size, so every search reported "Found 500 logs" whatever it
+          // had actually matched.
+          const matched = srv ? srv.total : filtered.length;
+          const corpus = srv ? srv.totalUnfiltered : logs.length;
+          const understood = readFilters(aiResult);
+          const everything = understood.length > 0 && matched === corpus;
+          return (
+            <div className="mx-3 mt-2 shrink-0 px-3 py-2 rounded-lg border border-blue-500/30 bg-blue-500/5">
+              <div className="flex items-center gap-2">
+                <Sparkles size={11} className="text-blue-400 shrink-0" />
+                <span className="text-blue-300 text-xs flex-1">
+                  {understood.length === 0 ? (
+                    <>Nothing in <span className="italic">"{aiQuery}"</span> could be turned
+                      into a filter — showing everything. Try naming a host, an account,
+                      an event id, or a time range.</>
+                  ) : (
+                    <><span className="font-semibold">{matched.toLocaleString()}</span> of{' '}
+                      {corpus.toLocaleString()} logs match</>
+                  )}
+                </span>
+                {aiResult.translatedQuery && (
+                  <button onClick={switchToQuery}
+                    className="font-mono text-[10px] bg-hover border border-border rounded px-2 py-0.5 text-blue-400 hover:border-blue-500 transition-colors shrink-0">
+                    {aiResult.translatedQuery}
+                  </button>
+                )}
+                <button onClick={() => setAiDismissed(true)}
+                  className="text-muted hover:text-primary transition-colors shrink-0">
+                  <X size={11} />
+                </button>
+              </div>
+
+              {/* What it understood, in words. Without this a search that
+                  changed nothing is indistinguishable from a search that did
+                  not run. */}
+              {understood.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                  <span className="text-muted text-[10px] uppercase tracking-wider">
+                    Searched for
+                  </span>
+                  {understood.map(u => (
+                    <span key={u}
+                      className="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-200 text-[10px] font-mono">
+                      {u}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* The case that looks like a broken filter and is not. */}
+              {everything && (
+                <p className="text-amber-400 text-[10px] mt-1.5">
+                  Every record in this corpus matches, so the view looks unchanged —
+                  the filter ran, there is simply nothing it excludes.
+                </p>
+              )}
+              {understood.length > 0 && matched === 0 && (
+                <p className="text-amber-400 text-[10px] mt-1.5">
+                  Nothing matched. Check the spelling of the host or account —
+                  the filter is applied across the whole corpus, not just this page.
+                </p>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── META BAR ──────────────────────────────────────────────────── */}
         <div className="px-3 py-2 border-b border-border bg-panel flex items-center gap-2 flex-wrap shrink-0">
@@ -577,6 +826,11 @@ export default function LogsExplorer({
             {srv && srv.totalUnfiltered > srv.total && (
               <span className="text-muted"> (filtered from {srv.totalUnfiltered.toLocaleString()})</span>
             )}
+            {srv?.filters?.timeFrom || srv?.filters?.timeTo ? (
+              <span className="ml-2 px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 text-[10px] font-mono">
+                {srv.filters.timeFrom || '…'} → {srv.filters.timeTo || '…'}
+              </span>
+            ) : null}
             {srv?.loading && <span className="text-muted"> · loading…</span>}
           </span>
           {activeFilters.map((f, i) => (
@@ -624,7 +878,10 @@ export default function LogsExplorer({
               <button onClick={() => {
                 setAiQuery(''); setQueryInput(''); setActiveFilters([]); setAiResult(null);
                 setSelectedSrcs(new Set()); setSelectedSevs(new Set()); setTimeRange(TIME_RANGES[5]); setPage(1);
-              }} className="px-4 py-2 border border-border rounded text-xs text-primary hover:border-blue-500 transition-colors">
+                if (srv?.onFilter) srv.onFilter(
+                  { q: '', severity: '', host: '', user: '', eventId: '', timeFrom: '', timeTo: '' });
+              }}
+              data-testid="clear-search" className="px-4 py-2 border border-border rounded text-xs text-primary hover:border-blue-500 transition-colors">
                 Clear search and show all logs
               </button>
             </div>
@@ -632,8 +889,11 @@ export default function LogsExplorer({
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-card z-10">
                 <tr className="border-b border-border">
-                  <th className="text-left text-muted px-2 py-2 font-medium w-8">#</th>
-                  <th className="text-left text-muted px-3 py-2 font-medium whitespace-nowrap">Time</th>
+                  <th className="text-left text-muted px-2 py-2 font-medium w-12">#</th>
+                  <th className="text-left text-muted px-3 py-2 font-medium whitespace-nowrap">Log ID</th>
+                  <th className="text-left text-muted px-3 py-2 font-medium whitespace-nowrap">
+                    Time <span className="text-[9px] opacity-60">UTC</span>
+                  </th>
                   <th className="text-left text-muted px-3 py-2 font-medium">Source</th>
                   <th className="text-left text-muted px-3 py-2 font-medium">Severity</th>
                   <th className="text-left text-muted px-3 py-2 font-medium">Event Type</th>
@@ -647,9 +907,24 @@ export default function LogsExplorer({
                   <>
                     <tr key={log.id}
                       onClick={() => setExpandedId(id => id === log.id ? null : log.id)}
-                      className="border-b border-border hover:bg-hover cursor-pointer transition-colors">
-                      <td className="px-2 py-2 text-muted text-[10px]">{(page - 1) * PAGE_SIZE + idx + 1}</td>
-                      <td className="px-3 py-2 text-muted font-mono whitespace-nowrap text-[10px]">{new Date(log.timestamp).toLocaleString()}</td>
+                      className={`border-b border-border hover:bg-hover cursor-pointer transition-colors ${
+                        expandedId === log.id ? 'bg-hover' : ''}`}>
+                      {/* The true position in the corpus, not the position on
+                          this page — otherwise every page restarts at 1 and the
+                          number means nothing. */}
+                      <td className="px-2 py-2 text-muted text-[10px] tabular-nums">
+                        {((srv ? srv.offset : (page - 1) * PAGE_SIZE) + idx + 1).toLocaleString()}
+                      </td>
+                      {/* Content-derived and stable across rebuilds, so it can
+                          be pasted into a ticket and still resolve. */}
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <span className="font-mono text-[10px] text-blue-400/90">
+                          {log.uid || log.id}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-muted font-mono whitespace-nowrap text-[10px]">
+                        {formatWhen(log.timestamp)}
+                      </td>
                       <td className="px-3 py-2 text-muted">{log.source}</td>
                       <td className="px-3 py-2">
                         <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${severityBg(log.severity)}`}>{log.severity}</span>
@@ -657,27 +932,11 @@ export default function LogsExplorer({
                       <td className="px-3 py-2 text-primary max-w-[130px] truncate">{log.rule}</td>
                       <td className="px-3 py-2 text-muted">{log.user}</td>
                       <td className="px-3 py-2 text-muted font-mono">{log.sourceIP}</td>
-                      <td className="px-3 py-2 text-muted max-w-[260px] truncate">
-                        {log.message?.slice(0, 90)}{log.message?.length > 90 ? '…' : ''}
+                      <td className="px-3 py-2 text-muted max-w-[320px] truncate font-mono text-[10px]"
+                          title={log.message}>
+                        {log.message}
                       </td>
                     </tr>
-                    {expandedId === log.id && (
-                      <tr key={`${log.id}-exp`} className="bg-base border-b border-border">
-                        <td colSpan={8} className="px-4 py-4">
-                          <ExpandedRow
-                            log={log}
-                            onPivot={pivot}
-                            onSendToAI={onSelectLog}
-                            onFindRelated={() => {
-                              const q = `Show all events related to user ${log.user} and IP ${log.sourceIP}`;
-                              setSearchMode('ai');
-                              runAI(q);
-                            }}
-                            onInvestigate={onInvestigate ? () => onInvestigate(log) : null}
-                          />
-                        </td>
-                      </tr>
-                    )}
                   </>
                 ))}
               </tbody>
@@ -725,6 +984,46 @@ export default function LogsExplorer({
           </div>
         )}
       </div>
+
+        {/* ── RECORD DETAIL ──────────────────────────────────────────────
+            A record used to expand into a row inside the table's own scroll
+            box. On a laptop that box is under 200px tall, so the thing you
+            opened the record to read was always partly off-screen. It opens
+            over the table instead, where it gets the full height of the
+            panel — the table is one Escape or one click away. */}
+        {expandedLog && (
+          <div className="absolute inset-0 z-20 bg-base flex flex-col animate-fadeIn">
+            <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-panel shrink-0">
+              <span className="font-mono text-xs text-blue-400">
+                {expandedLog.uid || expandedLog.id}
+              </span>
+              <span className="text-muted text-[11px] font-mono">
+                {formatWhen(expandedLog.timestamp)} UTC
+              </span>
+              <span className="text-muted text-[11px]">
+                {expandedLog.host} · {expandedLog.user}
+              </span>
+              <button onClick={() => setExpandedId(null)}
+                className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-[11px] text-muted hover:text-primary hover:bg-hover transition-colors">
+                <X size={12} /> Close
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <ExpandedRow
+                log={expandedLog}
+                onPivot={pivot}
+                onSendToAI={onSelectLog}
+                onFindRelated={() => {
+                  const q = `Show all events related to user ${expandedLog.user} and IP ${expandedLog.sourceIP}`;
+                  setExpandedId(null);
+                  setSearchMode('ai');
+                  runAI(q);
+                }}
+                onInvestigate={onInvestigate ? () => onInvestigate(expandedLog) : null}
+              />
+            </div>
+          </div>
+        )}
     </div>
   );
 }

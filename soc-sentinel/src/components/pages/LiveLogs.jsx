@@ -69,11 +69,11 @@ export default function LiveLogs({ onSelectLog, onInvestigate, searchQuery }) {
   // in a day than a browser can hold, so the server filters and pages and this
   // holds only what is on screen.
   const [page, setPage] = useState({ events: [], total: 0, offset: 0, loading: true });
-  const [filters, setFilters] = useState({ q: searchQuery || '', severity: '', host: '', user: '', source: '' });
+  const [filters, setFilters] = useState({ q: searchQuery || '', severity: '', host: '', user: '', source: '', eventId: '', timeFrom: '', timeTo: '' });
   const [offset, setOffset] = useState(0);
   const PAGE = 500;
 
-  useEffect(() => { setOffset(0); }, [filters.q, filters.severity, filters.host, filters.user, filters.source]);
+  useEffect(() => { setOffset(0); }, [filters.q, filters.severity, filters.host, filters.user, filters.source, filters.eventId, filters.timeFrom, filters.timeTo]);
   useEffect(() => { setFilters(f => ({ ...f, q: searchQuery || '' })); }, [searchQuery]);
 
   useEffect(() => {
@@ -92,7 +92,10 @@ export default function LiveLogs({ onSelectLog, onInvestigate, searchQuery }) {
       })
       .catch(() => { if (!cancelled) setPage(p => ({ ...p, loading: false })); });
     return () => { cancelled = true; };
-  }, [offset, filters, queryEvents]);
+    // eventTotal is included so the page re-queries when the server's count
+    // changes. Without it a view that mounted while the corpus was empty never
+    // asked again, and Live Logs stayed blank through an entire import.
+  }, [offset, filters, queryEvents, eventTotal]);
 
   return (
     <div className="flex flex-col gap-3 h-full">
