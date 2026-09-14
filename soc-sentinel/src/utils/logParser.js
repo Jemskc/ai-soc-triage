@@ -221,7 +221,30 @@ export function toPipelineEvent(row) {
     channel: pick('channel', 'Channel') || 'Security',
     source_file: pick('source_file', 'EVTX_FileName'),
     raw_message: rawMessage,
+    // Ground truth, when the file carries any.
+    //
+    // This mapping dropped it, so a labelled corpus imported through the
+    // browser arrived unlabelled and the Accuracy tab could only report "not
+    // computable" — while the same file ingested by the command-line script
+    // scored fine. Two import paths that disagree about what the data contains
+    // is worse than either being wrong.
+    //
+    // Absent stays absent. Sending 0 for a file with no labels would invent
+    // ground truth and let the dashboard claim a score it has no basis for.
+    label: readLabel(raw),
   };
+}
+
+/** 1 attack, 0 benign, '' when the record says nothing either way. */
+function readLabel(raw) {
+  for (const key of ['label', 'ground_truth', 'is_attack', 'malicious', 'red_team']) {
+    const v = raw[key];
+    if (v === undefined || v === null || v === '') continue;
+    const t = String(v).trim().toLowerCase();
+    if (['1', 'true', 'yes', 'attack', 'malicious', 'red'].includes(t)) return 1;
+    if (['0', 'false', 'no', 'benign', 'normal'].includes(t)) return 0;
+  }
+  return '';
 }
 
 export async function parseLogFile(file, onProgress) {

@@ -69,6 +69,10 @@ def to_event(g: dict) -> dict:
         "logon_type": g.get("logon_type", ""),
         "channel": "Security",
         "source_file": f"golden-{'red' if g.get('label') else 'benign'}",
+        # Carried explicitly as well as in the filename convention, so a row is
+        # self-describing and the scorecard does not have to infer its own
+        # ground truth from a string.
+        "label": 1 if g.get("label") else 0,
         "raw_message": (f"{g.get('auth_type','')} {g.get('logon_type','')} "
                         f"{g.get('orientation','')} {g.get('outcome','')} "
                         f"{g.get('source_ip','')}->{g.get('computer','')}"),

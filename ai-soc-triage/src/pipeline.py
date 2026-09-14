@@ -142,6 +142,10 @@ STANDARD_COLUMNS = [
     "destination_port", "process_name", "parent_process", "command_line",
     "logon_type", "task_name", "object_name", "raw_data", "raw_message",
     "source_file", "attack_folder", "ingest_source",
+    # Ground truth, when the corpus has any. Dropped here previously, so a
+    # labelled corpus arrived unlabelled and the scorecard could only report
+    # "not computable" — the one thing it exists to avoid saying.
+    "label",
 ]
 
 
@@ -485,6 +489,42 @@ def _raw_record(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _label_value(row: dict[str, Any]) -> int | None:
+    """Ground truth for one event: 1 attack, 0 benign, None unlabelled.
+
+    Absent and zero are different answers and must stay different: a corpus of
+    benign records scores perfectly on recall and is silent about it, while an
+    unlabelled corpus cannot be scored at all. Collapsing the two would let the
+    dashboard claim a number it has no basis for.
+    """
+    for key in ("label", "ground_truth", "is_attack", "malicious"):
+        value = row.get(key)
+        if value in (None, "", "nan"):
+            continue
+        text = str(value).strip().lower()
+        if text in ("1", "true", "yes", "attack", "malicious", "red"):
+            return 1
+        if text in ("0", "false", "no", "benign", "normal"):
+            return 0
+    return None
+
+
+def _event_uid(row: dict[str, Any], index: int) -> str:
+    """A short, stable id for one event.
+
+    Derived from the content — source, time, host, account, event id — rather
+    than from position, so it survives a rebuild of the log view and refers to
+    the same record every time.
+    """
+    import hashlib
+
+    seed = "|".join(str(row.get(f, "")) for f in (
+        "ingest_source", "timestamp", "computer", "user", "source_ip",
+        "event_id", "raw_message"))
+    digest = hashlib.sha1(seed.encode("utf-8", "replace")).hexdigest()[:10]
+    return f"LOG-{digest.upper()}"
+
+
 def _to_log_row(row: dict[str, Any], index: int, alert: dict[str, Any] | None) -> dict[str, Any]:
     """Render one normalised event in the shape the frontend log views expect."""
     if alert is not None:
@@ -495,11 +535,20 @@ def _to_log_row(row: dict[str, Any], index: int, alert: dict[str, Any] | None) -
     else:
         severity = _SEVERITY_BY_EVENT.get(str(row.get("event_id", "")), "LOW")
         rule = f"Event {row.get('event_id', '')}".strip()
+        # The log line itself, in preference to a restatement of its event id.
+        # This showed "Event 4624" for every authentication row while the
+        # actual record — "Negotiate Service LogOn Success C693->C693" — sat
+        # unused in raw_message, so the log view was less informative than the
+        # file it came from.
         parts = [str(row.get(f, "")) for f in ("process_name", "command_line")]
-        message = " ".join(p for p in parts if p) or rule
+        message = (" ".join(p for p in parts if p)
+                   or str(row.get("raw_message") or "").strip()
+                   or rule)
         mitre = ""
 
     return {
+        # Position in the current publish. Kept for compatibility; `uid` is the
+        # one to quote, because this renumbers whenever the view is rebuilt.
         "id": f"EV-{index}",
         "timestamp": str(row.get("timestamp") or ""),
         "severity": severity,
@@ -514,6 +563,12 @@ def _to_log_row(row: dict[str, Any], index: int, alert: dict[str, Any] | None) -
         # undifferentiated pile and an analyst cannot ask the first question
         # they always ask: which file did this come from?
         "ingestSource": str(row.get("ingest_source") or row.get("source_file") or "unknown"),
+        # A stable reference an analyst can quote, paste into a ticket, and
+        # still resolve after the view is rebuilt. "EV-4" identified a
+        # different row after every republish, which makes it useless for
+        # exactly the thing an id is for.
+        "uid": _event_uid(row, index),
+        "label": _label_value(row),
         "mitre": mitre,
         "status": "open",
         "eventId": str(row.get("event_id") or ""),

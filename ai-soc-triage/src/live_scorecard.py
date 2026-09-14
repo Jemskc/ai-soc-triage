@@ -42,8 +42,24 @@ SECONDS_PER_DAY = 86400
 
 
 def _label_of(row: dict[str, Any]) -> int | None:
-    """1 attack, 0 benign, None unlabelled."""
+    """1 attack, 0 benign, None unlabelled.
+
+    A per-row label is read first. Only a corpus that carries none falls back
+    to the filename convention — which was the sole method here, so a corpus
+    labelled row by row (as golden_sample.jsonl is) was reported as having no
+    ground truth at all.
+    """
     raw = row.get("_raw") or {}
+    for key in ("label", "ground_truth", "is_attack", "malicious"):
+        value = row.get(key, raw.get(key))
+        if value in (None, "", "nan"):
+            continue
+        text = str(value).strip().lower()
+        if text in ("1", "true", "yes", "attack", "malicious", "red"):
+            return 1
+        if text in ("0", "false", "no", "benign", "normal"):
+            return 0
+
     marker = str(raw.get("source_file") or row.get("ingestSource") or "").lower()
     if not marker:
         return None
