@@ -85,7 +85,18 @@ export const api = {
   // dump the dev server hosts. The logs are deterministic — they need no
   // model — so viewing them must never be blocked on the backend being up or
   // on a model reload.
-  events: async ({ offset = 0, limit = 1000, q, severity, host, user, eventId, source } = {}) => {
+  // Both layers graded against the corpus labels.
+  liveScorecard: () => request('/scorecard/live'),
+
+  // Logs an analyst sent to the AI by hand.
+  submitManualReview: (payload, note = '') =>
+    request('/manual-review', { method: 'POST', body: JSON.stringify({ payload, note }) }),
+  manualReviews: () => request('/manual-review'),
+  deleteManualReview: id =>
+    request(`/manual-review/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  clearManualReviews: () => request('/manual-review/clear', { method: 'POST' }),
+
+  events: async ({ offset = 0, limit = 1000, q, severity, host, user, eventId, source, timeFrom, timeTo } = {}) => {
     const p = new URLSearchParams({ offset, limit });
     if (q) p.set('q', q);
     if (severity) p.set('severity', severity);
@@ -93,6 +104,8 @@ export const api = {
     if (user) p.set('user', user);
     if (eventId) p.set('event_id', eventId);
     if (source) p.set('source', source);
+    if (timeFrom) p.set('time_from', timeFrom);
+    if (timeTo) p.set('time_to', timeTo);
     try {
       return await request(`/events?${p}`);
     } catch {

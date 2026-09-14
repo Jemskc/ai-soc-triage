@@ -48,15 +48,15 @@ export default function ClearData() {
         {result ? (
           <p className="text-emerald-400 text-xs">
             Cleared {(result.events ?? 0).toLocaleString()} events,{' '}
-            {result.incidents ?? 0} incidents and {result.verdicts ?? 0} verdicts.
-            Reloading…
+            {result.incidents ?? 0} incidents, {result.verdicts ?? 0} verdicts
+            and {result.manual_reviews ?? 0} analyst reviews. Reloading…
           </p>
         ) : !armed ? (
           <>
             <p className="text-muted text-[11px] leading-relaxed">
-              Removes every ingested event, incident, verdict and open question,
-              and empties the queue. Use it before importing a different corpus
-              so the two cannot be confused.
+              Removes every ingested event, incident, verdict, open question
+              and analyst-submitted review, and empties the queue. Use it before
+              importing a different corpus so the two cannot be confused.
             </p>
             <button
               onClick={() => setArmed(true)}

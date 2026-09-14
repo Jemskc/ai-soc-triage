@@ -27,6 +27,8 @@ import QueueStatus from './components/QueueStatus';
 import LiveLogs from './components/pages/LiveLogs';
 import EmailAnalysis from './pages/EmailAnalysis';
 import AIInvestigation from './components/pages/AIInvestigation';
+import ManualReview from './components/pages/ManualReview';
+import Scorecard from './components/pages/Scorecard';
 import EvidenceGraph from './components/pages/EvidenceGraph';
 import ResponsePage from './components/pages/ResponsePage';
 import AuditLog from './components/pages/AuditLog';
@@ -271,6 +273,20 @@ function Dashboard() {
               selectedId={focusedIncident}
               onSelect={setFocusedIncident}
             />
+          </div>
+        );
+
+      case 'manual':
+        return (
+          <div className="flex-1 overflow-y-auto p-4">
+            <ManualReview />
+          </div>
+        );
+
+      case 'scorecard':
+        return (
+          <div className="flex-1 overflow-y-auto p-4">
+            <Scorecard />
           </div>
         );
 
