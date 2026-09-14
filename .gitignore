@@ -59,3 +59,9 @@ ai-soc-triage/data/inventory.json
 ai-soc-triage/output/*.pid
 ai-soc-eval/*.pid
 ai-soc-triage/output/supervisor.log
+
+# Generated datasets — too large for git, and reproducible.
+# golden.jsonl:     python ai-soc-eval/make_golden.py
+# lanl_sample.json: derived from the LANL auth corpus
+ai-soc-eval/golden.jsonl
+ai-soc-eval/lanl_sample.json
